@@ -1,0 +1,157 @@
+{
+  "info": {
+    "name": "TOSM-FI Backend API",
+    "description": "Auth + user approval flow for tosm-fi-be.\n\nFlow to try:\n1. Run \"Register\" once — the first ever user auto-becomes an active admin.\n2. Run \"Login\" as that admin — it auto-saves {{token}} and {{idUser}}.\n3. Run \"Register\" again with a different username — that second user is created as pending.\n4. Run \"Get List User\" (as admin) to find the pending user's idUser, copy it into {{targetIdUser}}.\n5. Run \"Accept User\" to activate them.\n6. Login as the second user and call \"Get Me\" — it now succeeds instead of returning \"Menunggu validasi\".",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api" },
+    { "key": "token", "value": "" },
+    { "key": "idUser", "value": "" },
+    { "key": "targetIdUser", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nameUser\": \"John Doe\",\n  \"username\": \"johndoe\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "First registered user auto-becomes an active admin. Everyone after that starts as \"pending\" and needs an admin to accept them."
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set(\"token\", body.data.token);",
+                  "  pm.collectionVariables.set(\"idUser\", body.data.user.idUser);",
+                  "  console.log(\"Saved token + idUser for\", body.data.user.username, body.data.user.status);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"johndoe\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Succeeds even for a pending user — the token/idUser are auto-saved to collection variables via the Tests script."
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set(\"token\", \"\");",
+                  "  console.log(\"Cleared saved token\");",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Invalidates every token issued to this user up to now (stamps tokenValidAfter server-side) — not just this one. Re-run Login to get a usable token again."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "User",
+      "item": [
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/user/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["user", "me"]
+            },
+            "description": "Returns 403 \"Menunggu validasi\" until an admin accepts this user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get List User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/user/get-list-user",
+              "host": ["{{baseUrl}}"],
+              "path": ["user", "get-list-user"]
+            },
+            "description": "Admin only. Use this to find the idUser of a pending user, then paste it into the {{targetIdUser}} collection variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Accept User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idUser\": \"{{targetIdUser}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/user/accept-user",
+              "host": ["{{baseUrl}}"],
+              "path": ["user", "accept-user"]
+            },
+            "description": "Admin only. Sets the target user's status to \"active\"."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,59 +1,56 @@
-import { Request, Response } from "express";
+import { Response } from "express";
+import { AuthRequest } from "../middlewares/auth.middleware";
 import { UserService } from "../services/user.service";
 import { responseHandler } from "../utils/responseHandler";
 
 export const UserController = {
-  async register(req: Request, res: Response) {
-    try {
-      const { name, email, password } = req.body;
-      const user = await UserService.register({ name, email, password });
-
-      return responseHandler(res, {
-        message: "User registered successfully",
-        data: user,
-        status: 201,
-      });
-    } catch (error: any) {
-      return responseHandler(res, {
-        message: error.message || "Failed to register user",
-        is_success: false,
-        status: 400,
-        error,
-      });
-    }
+  async me(req: AuthRequest, res: Response) {
+    return responseHandler(res, {
+      message: "Berhasil mengambil data user",
+      data: req.currentUser,
+    });
   },
 
-  async login(req: Request, res: Response) {
+  async getListUser(req: AuthRequest, res: Response) {
     try {
-      const { email, password } = req.body;
-      const result = await UserService.login({ email, password });
-
+      const users = await UserService.getList();
       return responseHandler(res, {
-        message: "Login successful",
-        data: result,
-      });
-    } catch (error: any) {
-      return responseHandler(res, {
-        message: error.message || "Failed to login",
-        is_success: false,
-        status: 401,
-        error,
-      });
-    }
-  },
-
-  async getAll(req: Request, res: Response) {
-    try {
-      const users = await UserService.getAll();
-      return responseHandler(res, {
-        message: "Successfully fetched all users",
+        message: "Berhasil mengambil daftar user",
         data: users,
       });
     } catch (error: any) {
       return responseHandler(res, {
-        message: "Failed to fetch users",
-        is_success: false,
+        message: "Gagal mengambil daftar user",
+        isSuccess: false,
         status: 500,
+        error,
+      });
+    }
+  },
+
+  async acceptUser(req: AuthRequest, res: Response) {
+    try {
+      const { idUser } = req.body;
+
+      if (!idUser) {
+        return responseHandler(res, {
+          message: "idUser wajib diisi",
+          isSuccess: false,
+          status: 400,
+        });
+      }
+
+      const user = await UserService.acceptUser(idUser);
+
+      return responseHandler(res, {
+        message: "User berhasil divalidasi",
+        data: user,
+      });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal memvalidasi user",
+        isSuccess: false,
+        status: 400,
         error,
       });
     }

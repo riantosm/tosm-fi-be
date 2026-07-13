@@ -3,18 +3,18 @@ import { Response } from "express";
 interface IApiResponse {
   message: string;
   data?: any;
-  is_success?: boolean;
+  isSuccess?: boolean;
   status?: number;
   error?: any;
 }
 
 export const responseHandler = (
   res: Response,
-  { message, data = {}, is_success = true, status = 200, error }: IApiResponse
+  { message, data = {}, isSuccess = true, status = 200, error }: IApiResponse
 ) => {
   // Jika ada error, bungkus di dalam data.error
   const responseData =
-    !is_success && error
+    !isSuccess && error
       ? { error: typeof error === "string" ? error : error.message || String(error) }
       : data || {};
 
@@ -27,7 +27,7 @@ export const responseHandler = (
   return res.status(status).json({
     message,
     data: normalizedData,
-    is_success,
+    isSuccess,
     status,
   });
 };

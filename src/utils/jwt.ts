@@ -5,8 +5,11 @@ const JWT_SECRET = process.env.JWT_SECRET as string;
 const JWT_EXPIRES_IN = "7d";
 
 export interface IJwtPayload {
-  id_user: number;
+  idUser: string;
   role: UserRole;
+  // Added by jsonwebtoken automatically (seconds since epoch) — declared
+  // here so callers can compare it against tokenValidAfter.
+  iat?: number;
 }
 
 export const signToken = (payload: IJwtPayload) => {
