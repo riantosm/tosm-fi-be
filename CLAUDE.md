@@ -16,7 +16,7 @@ Requires `.env` with `MONGO_URI`, `PORT`, `JWT_SECRET` (see `.env.example`).
 
 ## Architecture
 
-Express + TypeScript + Mongoose (MongoDB) API. Only the **auth / user-approval domain** is implemented so far — register, login, logout, "who am I", and admin approval of new users. `archive/` holds an earlier, unrelated iteration of this project (accounts/transactions domain) — it's dead code, not imported by `app.ts`, ignore it unless deliberately reviving that domain.
+Express + TypeScript + Mongoose (MongoDB) API. The **auth / user-approval domain** (register, login, logout, "who am I", admin approval of new users) and the **wallet domain** are implemented so far. `archive/` holds an earlier, unrelated iteration of this project (accounts/transactions domain) — it's dead code, not imported by `app.ts`, ignore it unless deliberately reviving that domain.
 
 Sibling repo `../money-tracking` (React/Vite frontend) consumes this API for the auth domain only, via `http://localhost:3000/api` — see its own `CLAUDE.md` for how it's wired in.
 
@@ -37,6 +37,16 @@ Every response goes through `src/utils/responseHandler.ts`, producing `{ message
 - **Logout** (`POST /auth/logout`, `requireAuth` only — no active-status gate, since even a pending user should be able to invalidate their own token) stamps `tokenValidAfter = now()` on the user. `requireActiveUser` then rejects any token whose `iat` predates that stamp. This invalidates **every** token issued to that user at once (no per-session/per-device tracking) — the known tradeoff of doing this without a session store. If real per-device revocation is ever needed, the standard upgrade is short-lived access tokens + a server-tracked refresh token; not worth doing preemptively.
 - Admin-only routes (`GET /user/get-list-user`, `POST /user/accept-user`) use `requireAdmin`, which checks the freshly-loaded user's role (via `requireActiveUser`), not the JWT's.
 - Routes: `/api/auth/{register,login,logout}`, `/api/user/{me,get-list-user,accept-user}` (`src/routes/`).
+
+### Wallet domain
+
+- `WalletModel` (`src/models/wallet.model.ts`): `idUser` (owner, filters every query — wallets are per-user, never shared), `nameWallet`, `color`, `balance`, `transactionCount`, `isPrimary`, `order` (persists manual drag-to-reorder from the FE).
+- `balance`/`transactionCount` are only ever mutated by the transaction domain (not implemented yet) — the wallet endpoints themselves never touch them except at creation (`balance` defaults from the create payload, `transactionCount` always starts at 0).
+- Creating a wallet does **not** auto-mark it primary, even the first one for a user — the FE's `WalletFormModal` has an explicit "set as primary" action (`PATCH /wallets/:idWallet/primary`), matching the mock service's old behavior exactly.
+- `PATCH /wallets/:idWallet/primary` unsets `isPrimary` on every other wallet for that user before setting it on the target, then returns the full list (not just the changed wallet) since two wallets' `isPrimary` flip at once.
+- `PATCH /wallets/reorder` takes `orderedIds: string[]` and writes each wallet's `order` to its index in that array; `GET /wallets` always sorts by `order` ascending.
+- Routes: `/api/wallets/{"", ":idWallet", ":idWallet/primary", "reorder"}` (`src/routes/wallet.routes.ts`) — `/reorder` is registered before the generic `/:idWallet` PATCH route, otherwise Express would match "reorder" as an `:idWallet` param.
+- All wallet routes require `requireAuth` + `requireActiveUser` (any active user manages their own wallets) — no `requireAdmin`.
 
 ### MongoDB index gotcha
 
