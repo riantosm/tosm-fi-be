@@ -16,7 +16,7 @@ Requires `.env` with `MONGO_URI`, `PORT`, `JWT_SECRET` (see `.env.example`).
 
 ## Architecture
 
-Express + TypeScript + Mongoose (MongoDB) API. The **auth / user-approval domain** (register, login, logout, "who am I", admin approval of new users) and the **wallet domain** are implemented so far. `archive/` holds an earlier, unrelated iteration of this project (accounts/transactions domain) — it's dead code, not imported by `app.ts`, ignore it unless deliberately reviving that domain.
+Express + TypeScript + Mongoose (MongoDB) API. The **auth / user-approval domain** (register, login, logout, "who am I", admin approval of new users), the **wallet domain**, and the **category domain** are implemented so far. `archive/` holds an earlier, unrelated iteration of this project (accounts/transactions domain) — it's dead code, not imported by `app.ts`, ignore it unless deliberately reviving that domain.
 
 Sibling repo `../money-tracking` (React/Vite frontend) consumes this API for the auth domain only, via `http://localhost:3000/api` — see its own `CLAUDE.md` for how it's wired in.
 
@@ -48,6 +48,15 @@ Every response goes through `src/utils/responseHandler.ts`, producing `{ message
 - Routes: `/api/wallets/{"", ":idWallet", ":idWallet/primary", "reorder"}` (`src/routes/wallet.routes.ts`) — `/reorder` is registered before the generic `/:idWallet` PATCH route, otherwise Express would match "reorder" as an `:idWallet` param.
 - All wallet routes require `requireAuth` + `requireActiveUser` (any active user manages their own wallets) — no `requireAdmin`.
 
+### Category domain
+
+- `CategoryModel` (`src/models/category.model.ts`): `idUser` (owner, filters every query), `nameCategory`, `type: "income" | "expense"`, `color`, `icon`, `transactionCount`, `order` (drag-to-reorder among a user's categories). `subCategories` is an **embedded** Mongoose subdocument array, not a separate collection — a subcategory never exists outside its parent, so deleting a category cascades to its subcategories for free, and each subcategory has its own `nameSubCategory`, `icon`, `transactionCount`, `order` (drag-to-reorder within that category).
+- `ICategory.subCategories` is typed as `Types.DocumentArray<ISubCategory>` (not a plain array) specifically so `.id()` (lookup by subdocument `_id`) and `.push()` are available on hydrated documents — a plain-array type would compile but lose those methods.
+- `transactionCount` (both category- and subcategory-level) is only ever mutated by the transaction domain (not implemented yet) — the category endpoints themselves never touch it except at creation (always starts at 0).
+- Subdocument removal uses `sub.deleteOne()` (Mongoose 8 API) followed by `category.save()` — the older `.remove()` subdocument method was dropped in Mongoose 7+.
+- Routes: `/api/categories/{"", ":idCategory", "reorder", ":idCategory/subcategories", ":idCategory/subcategories/:idSubCategory", ":idCategory/subcategories/reorder"}` (`src/routes/category.routes.ts`) — both `/reorder` routes (category-level and subcategory-level) are registered before their respective generic `/:idCategory` or `/:idSubCategory` PATCH routes, same ordering gotcha as wallets.
+- All category routes require `requireAuth` + `requireActiveUser` — no `requireAdmin`.
+
 ### MongoDB index gotcha
 
 **Renaming or removing a `unique` schema field does not drop its old index in MongoDB** — Mongoose only adds indexes for what's in the current schema, it never removes stale ones. If you rename a unique field, every future insert has that phantom field as `null`, and the leftover unique index rejects the second `null` with a confusing `E11000 duplicate key` error that has nothing to do with your actual data. `src/config/database.ts` calls `UserModel.syncIndexes()` once after connecting specifically to keep this self-healing — if you add more models later, give them the same treatment (or drop the index manually via a one-off script, same idea as fixing this the first time it happened here).
@@ -55,3 +64,13 @@ Every response goes through `src/utils/responseHandler.ts`, producing `{ message
 ### Manual testing
 
 `postman/tosm-fi-be.postman_collection.json` — import it and follow the flow described in its collection-level description (register → login as bootstrap admin → register a second user → find their `idUser` via get-list-user → accept-user → log in as the now-approved user).
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
