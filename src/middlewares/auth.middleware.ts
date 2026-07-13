@@ -84,6 +84,7 @@ export const requireActiveUser = async (
       username: user.username,
       role: user.role,
       status: user.status,
+      createdAt: user.createdAt!,
     };
     next();
   } catch (error) {
