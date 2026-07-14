@@ -41,7 +41,7 @@ const SORT_MAP: Record<string, Record<string, 1 | -1>> = {
 
 // Combines the "month" shorthand with explicit dateFrom/dateTo into one
 // intersected [start, end) range instead of two competing Mongo filters.
-function buildDateFilter(query: ITransactionListQuery): { $gte: Date; $lt: Date } | null {
+export function buildDateFilter(query: ITransactionListQuery): { $gte: Date; $lt: Date } | null {
   let start = -Infinity;
   let end = Infinity;
 
@@ -71,6 +71,8 @@ function buildFilter(idUser: string, query: ITransactionListQuery): Record<strin
   const dateFilter = buildDateFilter(query);
   if (dateFilter) filter.date = dateFilter;
 
+  if (query.type) filter.type = query.type;
+
   if (query.idWallet) {
     andConditions.push({
       $or: [
@@ -95,7 +97,7 @@ function buildFilter(idUser: string, query: ITransactionListQuery): Record<strin
 // Aggregated over the same `filter` `getList` uses for the transaction find
 // (i.e. every applied query param except page/limit) so summary totals
 // always reflect the whole matching set, not just the current page.
-async function computeSummary(
+export async function computeSummary(
   idUser: string,
   filter: Record<string, any>,
 ): Promise<ITransactionSummary> {

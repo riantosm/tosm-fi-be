@@ -48,6 +48,7 @@ export type TransactionSortOption = "dateDesc" | "dateAsc" | "amountDesc" | "amo
 export interface ITransactionListQuery {
   /** "YYYY-MM" */
   month?: string;
+  type?: TransactionType;
   idWallet?: string;
   idCategory?: string;
   idSubCategory?: string;

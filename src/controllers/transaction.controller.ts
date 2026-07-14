@@ -6,11 +6,12 @@ import { responseHandler } from "../utils/responseHandler";
 export const TransactionController = {
   async list(req: AuthRequest, res: Response) {
     try {
-      const { month, idWallet, idCategory, idSubCategory, dateFrom, dateTo, search, sort, page, limit } =
+      const { month, type, idWallet, idCategory, idSubCategory, dateFrom, dateTo, search, sort, page, limit } =
         req.query;
 
       const result = await TransactionService.getList(req.currentUser!.idUser, {
         month: month as string | undefined,
+        type: type as any,
         idWallet: idWallet as string | undefined,
         idCategory: idCategory as string | undefined,
         idSubCategory: idSubCategory as string | undefined,
