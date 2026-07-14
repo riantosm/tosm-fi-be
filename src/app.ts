@@ -3,6 +3,7 @@ import express from "express";
 import morgan from "morgan";
 import authRoutes from "./routes/auth.routes";
 import categoryRoutes from "./routes/category.routes";
+import transactionRoutes from "./routes/transaction.routes";
 import userRoutes from "./routes/user.routes";
 import walletRoutes from "./routes/wallet.routes";
 
@@ -19,6 +20,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/wallets", walletRoutes);
 app.use("/api/categories", categoryRoutes);
+app.use("/api/transactions", transactionRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "✅ API is running." });
