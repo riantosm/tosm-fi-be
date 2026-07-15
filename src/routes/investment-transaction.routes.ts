@@ -5,6 +5,12 @@ import { requireActiveUser, requireAuth } from "../middlewares/auth.middleware";
 const router = express.Router();
 
 router.get("/", requireAuth, requireActiveUser, InvestmentTransactionController.list);
+router.get(
+  "/net-worth-timeline",
+  requireAuth,
+  requireActiveUser,
+  InvestmentTransactionController.netWorthTimeline
+);
 
 router.post("/in", requireAuth, requireActiveUser, InvestmentTransactionController.createMoneyIn);
 router.post("/out", requireAuth, requireActiveUser, InvestmentTransactionController.createMoneyOut);

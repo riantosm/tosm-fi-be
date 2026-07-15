@@ -6,13 +6,18 @@ import { TransactionModel } from "../models/transaction.model";
 // back from here for its own cascade). Safe because every usage below happens inside
 // an async function body invoked at request time, long after both modules have
 // finished loading — never at module-load time.
-import { removeCore as removeTransactionCore } from "./transaction.service";
+import { removeCore as removeTransactionCore, buildDateFilter } from "./transaction.service";
+import { buildInvestmentBuckets } from "../utils/investmentBuckets";
 import {
   ICreateMoneyInInput,
   ICreateMoneyOutInput,
   ICreateProfitLossInput,
   ICreateTransferInput,
   IInvestmentTransaction,
+  IInvestmentTransactionListQuery,
+  IInvestmentTransactionListResult,
+  INetWorthTimelinePoint,
+  INetWorthTimelineQuery,
   ISafeInvestmentTransaction,
   IUpdateInvestmentTransactionInput,
 } from "../interfaces/investment-transaction.interface";
@@ -31,6 +36,64 @@ const toSafeInvestmentTransaction = (entry: any): ISafeInvestmentTransaction => 
   idTransaction: entry.idTransaction,
   ...(entry.note && { note: entry.note }),
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const SORT_MAP: Record<string, Record<string, 1 | -1>> = {
+  dateDesc: { date: -1 },
+  dateAsc: { date: 1 },
+  amountDesc: { amount: -1 },
+  amountAsc: { amount: 1 },
+};
+
+// Search matches the note field directly, or the resolved instrument/account
+// name — resolved by first finding which instruments (for this user) have a
+// matching name at either level, then filtering the ledger by those ids.
+// Slightly coarser than per-account precision (a note-only match on one
+// account's name pulls in every transaction on that instrument), which is an
+// acceptable trade-off for a free-text search box, matching the same level of
+// precision the transaction domain's own search already applies.
+async function buildListFilter(
+  idUser: string,
+  query: IInvestmentTransactionListQuery
+): Promise<Record<string, any>> {
+  const filter: Record<string, any> = { idUser };
+  const andConditions: Record<string, any>[] = [];
+
+  const dateFilter = buildDateFilter({ dateFrom: query.dateFrom, dateTo: query.dateTo });
+  if (dateFilter) filter.date = dateFilter;
+
+  if (query.type) filter.type = query.type;
+
+  if (query.idInstrument) {
+    andConditions.push({
+      $or: [{ idInstrument: query.idInstrument }, { idInstrumentTo: query.idInstrument }],
+    });
+  }
+
+  if (query.search?.trim()) {
+    const pattern = new RegExp(escapeRegExp(query.search.trim()), "i");
+    const matchedInstruments = await InstrumentModel.find({
+      idUser,
+      $or: [{ nameInstrument: pattern }, { "investmentAccounts.nameInvestmentAccount": pattern }],
+    }).select("_id");
+    const matchedIds = matchedInstruments.map((instrument) => instrument._id.toString());
+
+    andConditions.push({
+      $or: [
+        { note: pattern },
+        ...(matchedIds.length
+          ? [{ idInstrument: { $in: matchedIds } }, { idInstrumentTo: { $in: matchedIds } }]
+          : []),
+      ],
+    });
+  }
+
+  if (andConditions.length > 0) filter.$and = andConditions;
+  return filter;
+}
 
 function assertFiniteAmount(amount: unknown, label: string): asserts amount is number {
   if (typeof amount !== "number" || !Number.isFinite(amount)) {
@@ -179,9 +242,104 @@ async function removeInvestmentTransactionCore(
 }
 
 export const InvestmentTransactionService = {
-  async getList(idUser: string): Promise<ISafeInvestmentTransaction[]> {
-    const entries = await InvestmentTransactionModel.find({ idUser }).sort({ date: -1 }).lean();
-    return entries.map(toSafeInvestmentTransaction);
+  // page/limit both optional — omitting either returns the entire filtered/sorted
+  // set unpaginated (page/limit/totalPages: null), matching the transaction
+  // domain's own GET /transactions convention exactly.
+  async getList(
+    idUser: string,
+    query: IInvestmentTransactionListQuery
+  ): Promise<IInvestmentTransactionListResult> {
+    const filter = await buildListFilter(idUser, query);
+    const sort = SORT_MAP[query.sort ?? "dateDesc"] ?? SORT_MAP.dateDesc;
+
+    if (!query.page || !query.limit) {
+      const entries = await InvestmentTransactionModel.find(filter).sort(sort).lean();
+      return {
+        investmentTransactions: entries.map(toSafeInvestmentTransaction),
+        total: null,
+        page: null,
+        limit: null,
+        totalPages: null,
+      };
+    }
+
+    const page = Number(query.page);
+    const limit = Number(query.limit);
+    const [entries, total] = await Promise.all([
+      InvestmentTransactionModel.find(filter)
+        .sort(sort)
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      InvestmentTransactionModel.countDocuments(filter),
+    ]);
+
+    return {
+      investmentTransactions: entries.map(toSafeInvestmentTransaction),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 0,
+    };
+  },
+
+  // Running invested/current snapshot per bucket (day/month/year), optionally
+  // scoped to a subset of instruments — NOT a per-bucket sum like cash-flow,
+  // since net worth is a balance, not a flow. Replays the ledger chronologically
+  // up to each bucket's end and reads off the cumulative totals at that point,
+  // same math as the frontend's (now-superseded for this chart) buildInvestmentTimeline.
+  async getNetWorthTimeline(
+    idUser: string,
+    query: INetWorthTimelineQuery
+  ): Promise<INetWorthTimelinePoint[]> {
+    const scopeFilter: Record<string, any> = { idUser };
+    if (query.idInstrument && query.idInstrument.length > 0) {
+      scopeFilter.$or = [
+        { idInstrument: { $in: query.idInstrument } },
+        { idInstrumentTo: { $in: query.idInstrument } },
+      ];
+    }
+
+    const buckets = buildInvestmentBuckets(query.dateFrom, query.dateTo, query.granularity, query.locale);
+    if (buckets.length === 0) return [];
+
+    // Only entries up to the last bucket's end matter for this chart.
+    const entries = await InvestmentTransactionModel.find({
+      ...scopeFilter,
+      date: { $lte: buckets[buckets.length - 1].end },
+    })
+      .sort({ date: 1, _id: 1 })
+      .select("idInstrument idInvestmentAccount idInstrumentTo idInvestmentAccountTo investedDelta currentDelta amount date")
+      .lean();
+
+    const scopeIds =
+      query.idInstrument && query.idInstrument.length > 0 ? new Set(query.idInstrument) : null;
+    function inScope(idInstrument: string | null): boolean {
+      return scopeIds === null || (idInstrument !== null && scopeIds.has(idInstrument));
+    }
+
+    let invested = 0;
+    let current = 0;
+    let cursor = 0;
+    const points: INetWorthTimelinePoint[] = [];
+
+    for (const bucket of buckets) {
+      while (cursor < entries.length && entries[cursor].date.getTime() <= bucket.end.getTime()) {
+        const entry = entries[cursor];
+        if (inScope(entry.idInstrument)) {
+          invested += entry.investedDelta ?? 0;
+          current += entry.currentDelta ?? 0;
+        }
+        if (entry.idInstrumentTo !== null && inScope(entry.idInstrumentTo)) {
+          invested += entry.amount ?? 0;
+          current += entry.amount ?? 0;
+        }
+        cursor += 1;
+      }
+      points.push({ label: bucket.label, date: bucket.end.toISOString(), invested, current });
+    }
+
+    return points;
   },
 
   async createMoneyIn(idUser: string, input: ICreateMoneyInInput): Promise<ISafeInvestmentTransaction> {

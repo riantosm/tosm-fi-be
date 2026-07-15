@@ -6,16 +6,69 @@ import { responseHandler } from "../utils/responseHandler";
 export const InvestmentTransactionController = {
   async list(req: AuthRequest, res: Response) {
     try {
-      const entries = await InvestmentTransactionService.getList(req.currentUser!.idUser);
+      const { idInstrument, type, dateFrom, dateTo, search, sort, page, limit } = req.query;
+
+      const result = await InvestmentTransactionService.getList(req.currentUser!.idUser, {
+        idInstrument: idInstrument as string | undefined,
+        type: type as any,
+        dateFrom: dateFrom as string | undefined,
+        dateTo: dateTo as string | undefined,
+        search: search as string | undefined,
+        sort: sort as any,
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      });
+
       return responseHandler(res, {
         message: "Berhasil mengambil daftar transaksi investasi",
-        data: entries,
+        data: result,
       });
     } catch (error: any) {
       return responseHandler(res, {
         message: "Gagal mengambil daftar transaksi investasi",
         isSuccess: false,
         status: 500,
+        error,
+      });
+    }
+  },
+
+  async netWorthTimeline(req: AuthRequest, res: Response) {
+    try {
+      const { granularity, dateFrom, dateTo, locale, idInstrument } = req.query;
+
+      if (!granularity || !dateFrom || !dateTo) {
+        return responseHandler(res, {
+          message: "granularity, dateFrom, dan dateTo wajib diisi",
+          isSuccess: false,
+          status: 400,
+        });
+      }
+
+      // Comma-separated (?idInstrument=a,b) rather than repeated-key/bracket array
+      // notation — sidesteps any ambiguity in how axios/qs would serialize/parse
+      // a real array query param.
+      const idInstrumentList = idInstrument
+        ? (idInstrument as string).split(",").filter(Boolean)
+        : undefined;
+
+      const points = await InvestmentTransactionService.getNetWorthTimeline(req.currentUser!.idUser, {
+        granularity: granularity as any,
+        dateFrom: dateFrom as string,
+        dateTo: dateTo as string,
+        locale: (locale as string) || "id",
+        idInstrument: idInstrumentList,
+      });
+
+      return responseHandler(res, {
+        message: "Berhasil mengambil grafik nilai investasi",
+        data: points,
+      });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal mengambil grafik nilai investasi",
+        isSuccess: false,
+        status: 400,
         error,
       });
     }
