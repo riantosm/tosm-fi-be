@@ -119,6 +119,14 @@ async function assertOwnedTransaction(idUser: string, idTransaction: string): Pr
   if (!exists) throw new Error("Transaksi tidak ditemukan");
 }
 
+// Blocks NEW money movement (in/out/transfer/pl) against a soft-deleted
+// account — deliberately not used by assertReversalSafe/update, which must
+// still be able to edit or reverse a historical entry even after its account
+// was later deleted.
+function assertAccountActive(account: { isDeleted?: boolean }): void {
+  if (account.isDeleted) throw new Error("Akun investasi ini sudah dihapus");
+}
+
 // Money leaving an account (withdrawal, or a transfer's source side) is
 // capped by what's actually there (currentValue) — NOT by invested amount.
 // A P/L-only gain (investedAmount 0, currentValue > 0) must still be
@@ -345,7 +353,12 @@ export const InvestmentTransactionService = {
   async createMoneyIn(idUser: string, input: ICreateMoneyInInput): Promise<ISafeInvestmentTransaction> {
     assertFiniteAmount(input.amount, "amount");
     if (input.amount <= 0) throw new Error("amount harus lebih besar dari 0");
-    await findOwnedAccount(idUser, input.idInstrument, input.idInvestmentAccount);
+    const { account: moneyInAccount } = await findOwnedAccount(
+      idUser,
+      input.idInstrument,
+      input.idInvestmentAccount
+    );
+    assertAccountActive(moneyInAccount);
     await assertOwnedTransaction(idUser, input.idTransaction);
 
     const session = await mongoose.startSession();
@@ -408,6 +421,7 @@ export const InvestmentTransactionService = {
           input.idInvestmentAccount,
           session
         );
+        assertAccountActive(account);
         if (input.amount > account.currentValue) {
           throw new Error("Jumlah penarikan melebihi saldo akun");
         }
@@ -473,7 +487,14 @@ export const InvestmentTransactionService = {
           input.idInvestmentAccount,
           session
         );
-        await findOwnedAccount(idUser, input.idInstrumentTo, input.idInvestmentAccountTo, session);
+        assertAccountActive(source);
+        const { account: destination } = await findOwnedAccount(
+          idUser,
+          input.idInstrumentTo,
+          input.idInvestmentAccountTo,
+          session
+        );
+        assertAccountActive(destination);
         if (input.amount > source.currentValue) {
           throw new Error("Jumlah transfer melebihi saldo akun sumber");
         }
@@ -541,6 +562,7 @@ export const InvestmentTransactionService = {
           input.idInvestmentAccount,
           session
         );
+        assertAccountActive(account);
         if (input.newCurrentValue === account.currentValue) {
           throw new Error("Nilai saat ini tidak berubah");
         }

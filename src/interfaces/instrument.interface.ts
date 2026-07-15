@@ -4,6 +4,13 @@ export interface IInvestmentAccount {
   nameInvestmentAccount: string;
   investedAmount: number;
   currentValue: number;
+  // Soft-deleted rather than actually removed from the embedded array once it
+  // has any linked investment-transaction ledger entries — those entries keep
+  // referencing this subdocument's _id for its name, so it must stay
+  // resolvable. Hidden from the active account list/picker UI; a delete is
+  // only ever allowed once currentValue is back to 0 (see
+  // InstrumentService.removeInvestmentAccount).
+  isDeleted: boolean;
 }
 
 export interface IInstrument {
@@ -40,6 +47,7 @@ export interface ISafeInvestmentAccount {
   nameInvestmentAccount: string;
   investedAmount: number;
   currentValue: number;
+  isDeleted: boolean;
 }
 
 export interface ISafeInstrument {

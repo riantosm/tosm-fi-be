@@ -5,6 +5,7 @@ const InvestmentAccountSchema = new Schema<IInvestmentAccount>({
   nameInvestmentAccount: { type: String, required: true },
   investedAmount: { type: Number, default: 0 },
   currentValue: { type: Number, default: 0 },
+  isDeleted: { type: Boolean, default: false },
 });
 
 const InstrumentSchema = new Schema<IInstrument>(

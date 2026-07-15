@@ -14,6 +14,7 @@ const toSafeInvestmentAccount = (idInstrument: string, account: any): ISafeInves
   nameInvestmentAccount: account.nameInvestmentAccount,
   investedAmount: account.investedAmount,
   currentValue: account.currentValue,
+  isDeleted: account.isDeleted ?? false,
 });
 
 const toSafeInstrument = (instrument: any): ISafeInstrument => {
@@ -105,8 +106,17 @@ export const InstrumentService = {
     const instrument = await findOwnedInstrument(idUser, idInstrument);
     const account = instrument.investmentAccounts.id(idInvestmentAccount);
     if (!account) throw new Error("Akun investasi tidak ditemukan");
+    if (account.currentValue !== 0) {
+      throw new Error(
+        "Akun ini masih memiliki nilai saat ini — pindahkan dana ke akun lain terlebih dahulu sebelum menghapus"
+      );
+    }
 
-    account.deleteOne();
+    // Soft delete instead of actually removing the subdocument: any
+    // investment-transaction ledger entry already referencing this account's
+    // id needs its name to stay resolvable (shown with a "(deleted)" suffix
+    // on the frontend) instead of falling back to a blank/"-" label.
+    account.isDeleted = true;
     await instrument.save();
   },
 };
