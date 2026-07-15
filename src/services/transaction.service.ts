@@ -2,6 +2,11 @@ import mongoose from "mongoose";
 import { TransactionModel } from "../models/transaction.model";
 import { WalletModel } from "../models/wallet.model";
 import { CategoryModel } from "../models/category.model";
+// Circular import with investment-transaction.service.ts (it imports
+// TransactionService back from here for its own cascade). Safe because every
+// usage below happens inside an async function body invoked at request time,
+// long after both modules have finished loading — never at module-load time.
+import { InvestmentTransactionService } from "./investment-transaction.service";
 import {
   ICreateTransactionInput,
   ISafeTransaction,
@@ -539,25 +544,38 @@ export const TransactionService = {
     const session = await mongoose.startSession();
     try {
       await session.withTransaction(async () => {
-        const existing = await TransactionModel.findOne({ _id: idTransaction, idUser }).session(session);
-        if (!existing) throw new Error("Transaksi tidak ditemukan");
-
-        const revertSource = effectSourceOf(existing);
-
-        const walletDeltas = accumulateWalletDeltas(getWalletDeltas(revertSource), []);
-        await applyWalletDeltaMap(idUser, walletDeltas, session);
-
-        await applyCategoryDelta(
-          idUser,
-          revertSource,
-          { idCategory: null, idSubCategory: null },
-          session,
-        );
-
-        await TransactionModel.deleteOne({ _id: idTransaction, idUser }).session(session);
+        await removeCore(idUser, idTransaction, session);
+        await InvestmentTransactionService.removeByLinkedTransactionId(idUser, idTransaction, session);
       });
     } finally {
       await session.endSession();
     }
   },
 };
+
+// Reversal + delete, assuming an external session — used both by the public
+// remove() (which starts its own session) and by investment-transaction.service.ts's
+// cascade delete (which needs this to run inside ITS OWN session, so both the
+// investment ledger row and this wallet transaction disappear atomically).
+export async function removeCore(
+  idUser: string,
+  idTransaction: string,
+  session: mongoose.ClientSession,
+): Promise<void> {
+  const existing = await TransactionModel.findOne({ _id: idTransaction, idUser }).session(session);
+  if (!existing) throw new Error("Transaksi tidak ditemukan");
+
+  const revertSource = effectSourceOf(existing);
+
+  const walletDeltas = accumulateWalletDeltas(getWalletDeltas(revertSource), []);
+  await applyWalletDeltaMap(idUser, walletDeltas, session);
+
+  await applyCategoryDelta(
+    idUser,
+    revertSource,
+    { idCategory: null, idSubCategory: null },
+    session,
+  );
+
+  await TransactionModel.deleteOne({ _id: idTransaction, idUser }).session(session);
+}
