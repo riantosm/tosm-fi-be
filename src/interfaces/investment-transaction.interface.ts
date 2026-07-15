@@ -79,6 +79,8 @@ export type InvestmentTransactionSortOption = "dateDesc" | "dateAsc" | "amountDe
 export interface IInvestmentTransactionListQuery {
   /** Matches idInstrument OR idInstrumentTo (source or transfer destination). */
   idInstrument?: string;
+  /** Matches idInvestmentAccount OR idInvestmentAccountTo (source or transfer destination). */
+  idInvestmentAccount?: string;
   type?: InvestmentTransactionType;
   /** "YYYY-MM-DD" */
   dateFrom?: string;
@@ -118,4 +120,19 @@ export interface INetWorthTimelinePoint {
   date: string;
   invested: number;
   current: number;
+}
+
+export interface ITimelinePoint {
+  /** ISO date of the ledger entry that produced this point (not bucketed). */
+  date: string;
+  /** Running total as of this point. */
+  invested: number;
+  current: number;
+}
+
+export interface IInvestmentTimelinesResult {
+  /** Keyed by idInvestmentAccount. */
+  accounts: Record<string, ITimelinePoint[]>;
+  /** Keyed by idInstrument. */
+  instruments: Record<string, ITimelinePoint[]>;
 }

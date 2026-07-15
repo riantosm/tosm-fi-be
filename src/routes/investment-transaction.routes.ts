@@ -11,6 +11,7 @@ router.get(
   requireActiveUser,
   InvestmentTransactionController.netWorthTimeline
 );
+router.get("/timelines", requireAuth, requireActiveUser, InvestmentTransactionController.timelines);
 
 router.post("/in", requireAuth, requireActiveUser, InvestmentTransactionController.createMoneyIn);
 router.post("/out", requireAuth, requireActiveUser, InvestmentTransactionController.createMoneyOut);

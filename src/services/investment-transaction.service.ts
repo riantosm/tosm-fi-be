@@ -13,12 +13,14 @@ import {
   ICreateMoneyOutInput,
   ICreateProfitLossInput,
   ICreateTransferInput,
+  IInvestmentTimelinesResult,
   IInvestmentTransaction,
   IInvestmentTransactionListQuery,
   IInvestmentTransactionListResult,
   INetWorthTimelinePoint,
   INetWorthTimelineQuery,
   ISafeInvestmentTransaction,
+  ITimelinePoint,
   IUpdateInvestmentTransactionInput,
 } from "../interfaces/investment-transaction.interface";
 
@@ -70,6 +72,15 @@ async function buildListFilter(
   if (query.idInstrument) {
     andConditions.push({
       $or: [{ idInstrument: query.idInstrument }, { idInstrumentTo: query.idInstrument }],
+    });
+  }
+
+  if (query.idInvestmentAccount) {
+    andConditions.push({
+      $or: [
+        { idInvestmentAccount: query.idInvestmentAccount },
+        { idInvestmentAccountTo: query.idInvestmentAccount },
+      ],
     });
   }
 
@@ -348,6 +359,93 @@ export const InvestmentTransactionService = {
     }
 
     return points;
+  },
+
+  // Powers InstrumentCard's sparkline, InstrumentDetailPanel's history chart,
+  // and InvestmentAccountCard's sparkline — all of which used to replay the
+  // *entire* unpaginated ledger client-side (GET /investment-transactions
+  // with no params) just to reconstruct these same running-total series.
+  // One linear pass here instead, keyed directly off each ledger entry's own
+  // denormalized idInstrument/idInvestmentAccount (+ ...To) fields — no need
+  // to cross-reference InstrumentModel's account list, since every entry
+  // already carries both keys. Returns only {date, invested, current} points,
+  // not full transaction records, since none of those consumers render
+  // anything else from the ledger rows.
+  async getTimelines(idUser: string): Promise<IInvestmentTimelinesResult> {
+    const entries = await InvestmentTransactionModel.find({ idUser })
+      .sort({ date: 1, _id: 1 })
+      .select(
+        "idInstrument idInvestmentAccount idInstrumentTo idInvestmentAccountTo investedDelta currentDelta amount date"
+      )
+      .lean();
+
+    const accountRunning = new Map<string, { invested: number; current: number }>();
+    const instrumentRunning = new Map<string, { invested: number; current: number }>();
+    const accountPoints = new Map<string, ITimelinePoint[]>();
+    const instrumentPoints = new Map<string, ITimelinePoint[]>();
+
+    function bump(
+      running: Map<string, { invested: number; current: number }>,
+      points: Map<string, ITimelinePoint[]>,
+      id: string,
+      investedDelta: number,
+      currentDelta: number,
+      date: Date
+    ): void {
+      const totals = running.get(id) ?? { invested: 0, current: 0 };
+      totals.invested += investedDelta;
+      totals.current += currentDelta;
+      running.set(id, totals);
+
+      const series = points.get(id) ?? [];
+      series.push({ date: date.toISOString(), invested: totals.invested, current: totals.current });
+      points.set(id, series);
+    }
+
+    for (const entry of entries) {
+      bump(
+        accountRunning,
+        accountPoints,
+        entry.idInvestmentAccount,
+        entry.investedDelta ?? 0,
+        entry.currentDelta ?? 0,
+        entry.date
+      );
+      bump(
+        instrumentRunning,
+        instrumentPoints,
+        entry.idInstrument,
+        entry.investedDelta ?? 0,
+        entry.currentDelta ?? 0,
+        entry.date
+      );
+
+      if (entry.idInvestmentAccountTo) {
+        bump(
+          accountRunning,
+          accountPoints,
+          entry.idInvestmentAccountTo,
+          entry.amount ?? 0,
+          entry.amount ?? 0,
+          entry.date
+        );
+      }
+      if (entry.idInstrumentTo) {
+        bump(
+          instrumentRunning,
+          instrumentPoints,
+          entry.idInstrumentTo,
+          entry.amount ?? 0,
+          entry.amount ?? 0,
+          entry.date
+        );
+      }
+    }
+
+    return {
+      accounts: Object.fromEntries(accountPoints),
+      instruments: Object.fromEntries(instrumentPoints),
+    };
   },
 
   async createMoneyIn(idUser: string, input: ICreateMoneyInInput): Promise<ISafeInvestmentTransaction> {

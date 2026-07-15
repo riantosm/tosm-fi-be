@@ -6,10 +6,12 @@ import { responseHandler } from "../utils/responseHandler";
 export const InvestmentTransactionController = {
   async list(req: AuthRequest, res: Response) {
     try {
-      const { idInstrument, type, dateFrom, dateTo, search, sort, page, limit } = req.query;
+      const { idInstrument, idInvestmentAccount, type, dateFrom, dateTo, search, sort, page, limit } =
+        req.query;
 
       const result = await InvestmentTransactionService.getList(req.currentUser!.idUser, {
         idInstrument: idInstrument as string | undefined,
+        idInvestmentAccount: idInvestmentAccount as string | undefined,
         type: type as any,
         dateFrom: dateFrom as string | undefined,
         dateTo: dateTo as string | undefined,
@@ -67,6 +69,24 @@ export const InvestmentTransactionController = {
     } catch (error: any) {
       return responseHandler(res, {
         message: error.message || "Gagal mengambil grafik nilai investasi",
+        isSuccess: false,
+        status: 400,
+        error,
+      });
+    }
+  },
+
+  async timelines(req: AuthRequest, res: Response) {
+    try {
+      const result = await InvestmentTransactionService.getTimelines(req.currentUser!.idUser);
+
+      return responseHandler(res, {
+        message: "Berhasil mengambil grafik histori investasi",
+        data: result,
+      });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal mengambil grafik histori investasi",
         isSuccess: false,
         status: 400,
         error,
