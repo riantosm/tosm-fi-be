@@ -55,4 +55,66 @@ export const UserController = {
       });
     }
   },
+
+  async updateProfile(req: AuthRequest, res: Response) {
+    try {
+      const { nameUser, username } = req.body;
+
+      if (!nameUser || !username) {
+        return responseHandler(res, {
+          message: "nameUser dan username wajib diisi",
+          isSuccess: false,
+          status: 400,
+        });
+      }
+
+      const user = await UserService.updateProfile(req.currentUser!.idUser, {
+        nameUser,
+        username,
+      });
+
+      return responseHandler(res, {
+        message: "Profil berhasil diperbarui",
+        data: user,
+      });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal memperbarui profil",
+        isSuccess: false,
+        status: 400,
+        error,
+      });
+    }
+  },
+
+  async changePassword(req: AuthRequest, res: Response) {
+    try {
+      const { currentPassword, newPassword } = req.body;
+
+      if (!currentPassword || !newPassword) {
+        return responseHandler(res, {
+          message: "currentPassword dan newPassword wajib diisi",
+          isSuccess: false,
+          status: 400,
+        });
+      }
+
+      await UserService.changePassword(req.currentUser!.idUser, {
+        currentPassword,
+        newPassword,
+      });
+
+      return responseHandler(res, {
+        message: "Password berhasil diubah, silakan login kembali",
+        data: {},
+      });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal mengubah password",
+        isSuccess: false,
+        status: 400,
+        error,
+      });
+    }
+  },
 };

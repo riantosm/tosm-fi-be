@@ -34,3 +34,13 @@ export interface ISafeUser {
   status: UserStatus;
   createdAt: Date;
 }
+
+export interface IUpdateProfileInput {
+  nameUser: string;
+  username: string;
+}
+
+export interface IChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
+}
