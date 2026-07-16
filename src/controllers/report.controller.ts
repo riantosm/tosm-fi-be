@@ -3,6 +3,11 @@ import { AuthRequest } from "../middlewares/auth.middleware";
 import { ReportService } from "../services/report.service";
 import { responseHandler } from "../utils/responseHandler";
 
+function currentMonthParam(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 export const ReportController = {
   async summary(req: AuthRequest, res: Response) {
     try {
@@ -134,6 +139,26 @@ export const ReportController = {
     } catch (error: any) {
       return responseHandler(res, {
         message: error.message || "Gagal mengambil tren bulanan",
+        isSuccess: false,
+        status: 500,
+        error,
+      });
+    }
+  },
+
+  async dashboardSummary(req: AuthRequest, res: Response) {
+    try {
+      const { month } = req.query;
+
+      const summary = await ReportService.getDashboardSummary(
+        req.currentUser!.idUser,
+        (month as string) || currentMonthParam(),
+      );
+
+      return responseHandler(res, { message: "Berhasil mengambil ringkasan dashboard", data: summary });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal mengambil ringkasan dashboard",
         isSuccess: false,
         status: 500,
         error,

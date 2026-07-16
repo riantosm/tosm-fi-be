@@ -44,3 +44,22 @@ export interface IMonthlyTrendPoint {
   income: number;
   expense: number;
 }
+
+export type IFinancialHealthStatus = "excellent" | "good" | "fair" | "needsAttention";
+
+export interface IFinancialHealth {
+  /** 0-100, currently just the clamped saving rate. */
+  score: number;
+  status: IFinancialHealthStatus;
+  /** Percentage, can be negative when expense exceeds income. */
+  savingRate: number;
+  isCashFlowPositive: boolean;
+  isExpenseStable: boolean;
+}
+
+export interface IDashboardSummary {
+  wallet: { totalBalance: number; walletCount: number };
+  investment: { totalCurrentValue: number; instrumentCount: number };
+  monthly: { income: number; expense: number; savings: number };
+  financialHealth: IFinancialHealth;
+}

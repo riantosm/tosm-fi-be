@@ -1,9 +1,12 @@
 import { TransactionModel } from "../models/transaction.model";
 import { WalletModel } from "../models/wallet.model";
 import { CategoryModel } from "../models/category.model";
+import { InstrumentModel } from "../models/instrument.model";
 import { buildDateFilter, computeSummary } from "./transaction.service";
 import {
   ICashFlowPoint,
+  IDashboardSummary,
+  IFinancialHealth,
   IMonthlyTrendPoint,
   IReportSummary,
   ITopSpendingItem,
@@ -18,6 +21,25 @@ function computeChangePercent(current: number, previous: number): number {
 
 function periodFilter(idUser: string, dateFrom: string, dateTo: string): Record<string, any> {
   return { idUser, date: buildDateFilter({ dateFrom, dateTo }) };
+}
+
+// Score is just the saving rate clamped to [0, 100] — spending everything (or more) than you
+// earn floors at 0, saving the whole month's income caps at 100. isExpenseStable uses an 80%
+// of income threshold (common "spend at most 80%, save at least 20%" budgeting rule of thumb).
+function computeFinancialHealth(income: number, expense: number): IFinancialHealth {
+  const savingRate = income > 0 ? ((income - expense) / income) * 100 : expense > 0 ? -100 : 0;
+  const isCashFlowPositive = income >= expense;
+  const isExpenseStable = income > 0 ? expense <= income * 0.8 : expense === 0;
+  const score = Math.max(0, Math.min(100, Math.round(savingRate)));
+  const status = score >= 80 ? "excellent" : score >= 60 ? "good" : score >= 40 ? "fair" : "needsAttention";
+
+  return {
+    score,
+    status,
+    savingRate: Math.round(savingRate),
+    isCashFlowPositive,
+    isExpenseStable,
+  };
 }
 
 export const ReportService = {
@@ -219,5 +241,40 @@ export const ReportService = {
       const entry = totals.get(key) ?? { income: 0, expense: 0 };
       return { label: formatMonthShortLabel(month, locale), income: entry.income, expense: entry.expense };
     });
+  },
+
+  // Combines three otherwise-unrelated domains (wallet balances, investment account values,
+  // this month's income/expense) into a single call for the dashboard's overview cards, instead
+  // of the frontend composing three separate requests.
+  async getDashboardSummary(idUser: string, month: string): Promise<IDashboardSummary> {
+    const dateFilter = buildDateFilter({ month });
+
+    const [wallets, instruments, monthly] = await Promise.all([
+      WalletModel.find({ idUser }).lean(),
+      InstrumentModel.find({ idUser }).lean(),
+      computeSummary(idUser, dateFilter ? { idUser, date: dateFilter } : { idUser }),
+    ]);
+
+    const totalBalance = wallets.reduce((sum, wallet) => sum + wallet.balance, 0);
+
+    const totalCurrentValue = instruments.reduce(
+      (sum, instrument) =>
+        sum +
+        instrument.investmentAccounts
+          .filter((account) => !account.isDeleted)
+          .reduce((accountSum, account) => accountSum + account.currentValue, 0),
+      0,
+    );
+
+    return {
+      wallet: { totalBalance, walletCount: wallets.length },
+      investment: { totalCurrentValue, instrumentCount: instruments.length },
+      monthly: {
+        income: monthly.income,
+        expense: monthly.expense,
+        savings: monthly.income - monthly.expense,
+      },
+      financialHealth: computeFinancialHealth(monthly.income, monthly.expense),
+    };
   },
 };

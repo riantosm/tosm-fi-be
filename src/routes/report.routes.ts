@@ -4,6 +4,7 @@ import { requireActiveUser, requireAuth } from "../middlewares/auth.middleware";
 
 const router = express.Router();
 
+router.get("/dashboard-summary", requireAuth, requireActiveUser, ReportController.dashboardSummary);
 router.get("/summary", requireAuth, requireActiveUser, ReportController.summary);
 router.get("/wallet-usage", requireAuth, requireActiveUser, ReportController.walletUsage);
 router.get("/top-spending", requireAuth, requireActiveUser, ReportController.topSpending);
