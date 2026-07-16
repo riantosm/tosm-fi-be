@@ -60,6 +60,6 @@ export interface IFinancialHealth {
 export interface IDashboardSummary {
   wallet: { totalBalance: number; walletCount: number };
   investment: { totalCurrentValue: number; instrumentCount: number };
-  monthly: { income: number; expense: number; savings: number };
+  monthly: { income: number; expense: number; savings: number; investmentInflow: number };
   financialHealth: IFinancialHealth;
 }

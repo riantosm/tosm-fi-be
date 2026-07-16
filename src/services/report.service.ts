@@ -2,6 +2,7 @@ import { TransactionModel } from "../models/transaction.model";
 import { WalletModel } from "../models/wallet.model";
 import { CategoryModel } from "../models/category.model";
 import { InstrumentModel } from "../models/instrument.model";
+import { InvestmentTransactionModel } from "../models/investment-transaction.model";
 import { buildDateFilter, computeSummary } from "./transaction.service";
 import {
   ICashFlowPoint,
@@ -23,20 +24,23 @@ function periodFilter(idUser: string, dateFrom: string, dateTo: string): Record<
   return { idUser, date: buildDateFilter({ dateFrom, dateTo }) };
 }
 
-// Score is just the saving rate clamped to [0, 100] — spending everything (or more) than you
-// earn floors at 0, saving the whole month's income caps at 100. isExpenseStable uses an 80%
-// of income threshold (common "spend at most 80%, save at least 20%" budgeting rule of thumb).
-function computeFinancialHealth(income: number, expense: number): IFinancialHealth {
-  const savingRate = income > 0 ? ((income - expense) / income) * 100 : expense > 0 ? -100 : 0;
+// Score is the share of this month's income left over after BOTH spending and investing —
+// expense and investmentInflow are each money leaving your immediately-available balance, so
+// both get subtracted from income. E.g. income 1jt, expense 100rb, no investment -> 90% left;
+// income 1jt, expense 100rb, invested 100rb -> 80% left. isCashFlowPositive/isExpenseStable
+// stay income-vs-expense based; isExpenseStable uses an 80% of income threshold (common "spend
+// at most 80%, save at least 20%" budgeting rule of thumb).
+function computeFinancialHealth(income: number, expense: number, investmentInflow: number): IFinancialHealth {
+  const savingRate = income > 0 ? Math.round(((income - expense - investmentInflow) / income) * 100) : 0;
   const isCashFlowPositive = income >= expense;
   const isExpenseStable = income > 0 ? expense <= income * 0.8 : expense === 0;
-  const score = Math.max(0, Math.min(100, Math.round(savingRate)));
+  const score = Math.max(0, Math.min(100, savingRate));
   const status = score >= 80 ? "excellent" : score >= 60 ? "good" : score >= 40 ? "fair" : "needsAttention";
 
   return {
     score,
     status,
-    savingRate: Math.round(savingRate),
+    savingRate,
     isCashFlowPositive,
     isExpenseStable,
   };
@@ -249,10 +253,15 @@ export const ReportService = {
   async getDashboardSummary(idUser: string, month: string): Promise<IDashboardSummary> {
     const dateFilter = buildDateFilter({ month });
 
-    const [wallets, instruments, monthly] = await Promise.all([
+    const [wallets, instruments, monthly, investmentInflowEntries] = await Promise.all([
       WalletModel.find({ idUser }).lean(),
       InstrumentModel.find({ idUser }).lean(),
       computeSummary(idUser, dateFilter ? { idUser, date: dateFilter } : { idUser }),
+      InvestmentTransactionModel.find({
+        idUser,
+        type: "in",
+        ...(dateFilter ? { date: dateFilter } : {}),
+      }).lean(),
     ]);
 
     const totalBalance = wallets.reduce((sum, wallet) => sum + wallet.balance, 0);
@@ -266,6 +275,8 @@ export const ReportService = {
       0,
     );
 
+    const investmentInflow = investmentInflowEntries.reduce((sum, entry) => sum + entry.amount, 0);
+
     return {
       wallet: { totalBalance, walletCount: wallets.length },
       investment: { totalCurrentValue, instrumentCount: instruments.length },
@@ -273,8 +284,9 @@ export const ReportService = {
         income: monthly.income,
         expense: monthly.expense,
         savings: monthly.income - monthly.expense,
+        investmentInflow,
       },
-      financialHealth: computeFinancialHealth(monthly.income, monthly.expense),
+      financialHealth: computeFinancialHealth(monthly.income, monthly.expense, investmentInflow),
     };
   },
 };
