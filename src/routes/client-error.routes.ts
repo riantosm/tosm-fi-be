@@ -9,5 +9,12 @@ const router = express.Router();
 // frontend anyway, so it doesn't need the full active-user check.
 router.post("/", requireAuth, ClientErrorController.create);
 router.get("/", requireAuth, requireActiveUser, requireAdmin, ClientErrorController.list);
+router.delete(
+  "/:idClientError",
+  requireAuth,
+  requireActiveUser,
+  requireAdmin,
+  ClientErrorController.remove,
+);
 
 export default router;
