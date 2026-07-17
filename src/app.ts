@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import morgan from "morgan";
+import accountRoutes from "./routes/account.routes";
 import authRoutes from "./routes/auth.routes";
 import categoryRoutes from "./routes/category.routes";
 import instrumentRoutes from "./routes/instrument.routes";
@@ -20,6 +21,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 
 app.use("/api/auth", authRoutes);
+app.use("/api/account", accountRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/wallets", walletRoutes);
 app.use("/api/categories", categoryRoutes);
