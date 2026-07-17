@@ -11,6 +11,7 @@ import reportRoutes from "./routes/report.routes";
 import transactionRoutes from "./routes/transaction.routes";
 import userRoutes from "./routes/user.routes";
 import walletRoutes from "./routes/wallet.routes";
+import { connectDB } from "./config/database";
 
 const app = express();
 
@@ -20,6 +21,27 @@ app.use(cors({ origin: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
+
+// Every request waits for a ready DB connection before reaching a route —
+// connectDB() itself caches the connection, so this is instant once warm.
+// On a cold instance where the connection genuinely fails, this still sends
+// back a normal HTTP response (with the cors() headers already applied
+// above) instead of the request hanging/crashing with no response, which is
+// what made connection failures look like CORS errors in the browser.
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error("❌ MongoDB Connection Error:", error);
+    res.status(503).json({
+      message: "Database unavailable, please retry.",
+      data: null,
+      isSuccess: false,
+      status: 503,
+    });
+  }
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/account", accountRoutes);
