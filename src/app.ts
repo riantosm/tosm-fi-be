@@ -4,6 +4,7 @@ import morgan from "morgan";
 import accountRoutes from "./routes/account.routes";
 import authRoutes from "./routes/auth.routes";
 import categoryRoutes from "./routes/category.routes";
+import clientErrorRoutes from "./routes/client-error.routes";
 import instrumentRoutes from "./routes/instrument.routes";
 import investmentTransactionRoutes from "./routes/investment-transaction.routes";
 import reportRoutes from "./routes/report.routes";
@@ -29,6 +30,7 @@ app.use("/api/transactions", transactionRoutes);
 app.use("/api/instruments", instrumentRoutes);
 app.use("/api/investment-transactions", investmentTransactionRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/errors", clientErrorRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "✅ API is running." });

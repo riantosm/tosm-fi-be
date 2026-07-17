@@ -84,6 +84,15 @@ Every response goes through `src/utils/responseHandler.ts`, producing `{ message
 - `AccountService.resetData` (`src/services/account.service.ts`) runs one `mongoose.startSession()` + `session.withTransaction(...)` and issues `deleteMany({ idUser }, { session })` against `TransactionModel`, `InvestmentTransactionModel`, `WalletModel`, `CategoryModel`, and `InstrumentModel` — same session/ownership-scoping convention as every other domain's delete path. Transactions/investment-transactions are deleted before wallets/categories/instruments purely for readability (there are no side-effect deltas to compute here, unlike a single transaction delete — this wipes the wallet/category/instrument documents themselves, not just their counters).
 - No `UserModel` document is touched — this clears a user's financial data, not their account/login.
 
+### Client error log domain
+
+`POST /api/errors` receives crash reports from the frontend's `ErrorBoundary`/global `window.onerror`/`unhandledrejection` handlers (see the frontend's own `CLAUDE.md`) and `GET /api/errors` lets an admin view them at Settings → Error Log.
+
+- `ClientErrorModel` (`src/models/client-error.model.ts`): `idUser` (nullable — best-effort, not an ownership filter like every other domain's `idUser`), `source` (`"render" | "window.onerror" | "unhandledrejection"`, whatever string the frontend sends), `message`, `stack`, `path`, `userAgent`, and a free-form `extra` (`Schema.Types.Mixed`) for source-specific fields (`componentStack` for render errors, `filename`/`line`/`column` for `window.onerror`) that don't warrant their own schema field.
+- `POST /` only requires `requireAuth`, not `requireActiveUser` — a pending user's crash should still be captured, and the frontend calls this fire-and-forget (failures are swallowed client-side), so there's no user-facing reason to gate it further.
+- `GET /` requires `requireAuth` + `requireActiveUser` + `requireAdmin` — same admin gate as `/user/get-list-user`. Returns the latest 200 (`ClientErrorService`'s `LIST_LIMIT`), newest first — this is a diagnostic tool, not a paginated data view.
+- No `idUser`-based filtering on `list()` — unlike every other domain, this collection isn't scoped per-user; an admin sees every user's reported crashes.
+
 ### MongoDB index gotcha
 
 **Renaming or removing a `unique` schema field does not drop its old index in MongoDB** — Mongoose only adds indexes for what's in the current schema, it never removes stale ones. If you rename a unique field, every future insert has that phantom field as `null`, and the leftover unique index rejects the second `null` with a confusing `E11000 duplicate key` error that has nothing to do with your actual data. `src/config/database.ts` calls `UserModel.syncIndexes()` once after connecting specifically to keep this self-healing — if you add more models later, give them the same treatment (or drop the index manually via a one-off script, same idea as fixing this the first time it happened here).
