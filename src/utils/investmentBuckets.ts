@@ -1,7 +1,11 @@
 import { NetWorthTimelineGranularity } from "../interfaces/investment-transaction.interface";
+import { shiftToInstant } from "./timezone";
 
-// UTC-anchored (Date.UTC / getUTC*) to match how buildDateFilter() already interprets
-// "YYYY-MM-DD" query params as UTC day boundaries. Unlike reportBuckets.ts's
+// UTC-anchored (Date.UTC / getUTC*) internally, since dateFrom/dateTo represent the *client's
+// local* calendar fields expressed via UTC-field arithmetic — matching how buildDateFilter()
+// interprets "YYYY-MM-DD" query params the same way. Bucket start/end are shifted by
+// tzOffsetMinutes right before being returned so they become real UTC instants, comparable
+// against `date` (a true UTC instant) — see src/utils/timezone.ts. Unlike reportBuckets.ts's
 // buildReportBuckets (which auto-picks granularity from the period span), the net-worth
 // timeline lets the caller choose day/month/year explicitly, so this only needs to lay
 // out buckets for whichever granularity was requested.
@@ -38,11 +42,20 @@ function clampDate(date: Date, max: Date): Date {
   return date.getTime() > max.getTime() ? max : date;
 }
 
+function shiftBuckets(buckets: InvestmentBucket[], tzOffsetMinutes: number): InvestmentBucket[] {
+  return buckets.map((bucket) => ({
+    label: bucket.label,
+    start: shiftToInstant(bucket.start, tzOffsetMinutes),
+    end: shiftToInstant(bucket.end, tzOffsetMinutes),
+  }));
+}
+
 export function buildInvestmentBuckets(
   dateFrom: string,
   dateTo: string,
   granularity: NetWorthTimelineGranularity,
   locale: string,
+  tzOffsetMinutes = 0,
 ): InvestmentBucket[] {
   const from = parseIsoDateUtc(dateFrom);
   const to = endOfDayUtc(parseIsoDateUtc(dateTo));
@@ -60,7 +73,7 @@ export function buildInvestmentBuckets(
       });
       cursor = addDaysUtc(cursor, 1);
     }
-    return buckets;
+    return shiftBuckets(buckets, tzOffsetMinutes);
   }
 
   if (granularity === "year") {
@@ -76,7 +89,7 @@ export function buildInvestmentBuckets(
       });
       year += 1;
     }
-    return buckets;
+    return shiftBuckets(buckets, tzOffsetMinutes);
   }
 
   // month
@@ -94,5 +107,5 @@ export function buildInvestmentBuckets(
     });
     cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
   }
-  return buckets;
+  return shiftBuckets(buckets, tzOffsetMinutes);
 }

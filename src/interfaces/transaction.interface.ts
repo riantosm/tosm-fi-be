@@ -60,6 +60,8 @@ export interface ITransactionListQuery {
   sort?: TransactionSortOption;
   page?: number;
   limit?: number;
+  /** Client's `Date.getTimezoneOffset()` value — see src/utils/timezone.ts. */
+  tzOffsetMinutes?: number;
 }
 
 export interface ITransactionSubCategoryBreakdownItem {

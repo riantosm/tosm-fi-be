@@ -64,7 +64,11 @@ async function buildListFilter(
   const filter: Record<string, any> = { idUser };
   const andConditions: Record<string, any>[] = [];
 
-  const dateFilter = buildDateFilter({ dateFrom: query.dateFrom, dateTo: query.dateTo });
+  const dateFilter = buildDateFilter({
+    dateFrom: query.dateFrom,
+    dateTo: query.dateTo,
+    tzOffsetMinutes: query.tzOffsetMinutes,
+  });
   if (dateFilter) filter.date = dateFilter;
 
   if (query.type) filter.type = query.type;
@@ -319,7 +323,13 @@ export const InvestmentTransactionService = {
       ];
     }
 
-    const buckets = buildInvestmentBuckets(query.dateFrom, query.dateTo, query.granularity, query.locale);
+    const buckets = buildInvestmentBuckets(
+      query.dateFrom,
+      query.dateTo,
+      query.granularity,
+      query.locale,
+      query.tzOffsetMinutes,
+    );
     if (buckets.length === 0) return [];
 
     // Only entries up to the last bucket's end matter for this chart.

@@ -7,6 +7,7 @@ import { CategoryModel } from "../models/category.model";
 // usage below happens inside an async function body invoked at request time,
 // long after both modules have finished loading — never at module-load time.
 import { InvestmentTransactionService } from "./investment-transaction.service";
+import { localFieldsMsToInstantMs, parseTzOffsetMinutes } from "../utils/timezone";
 import {
   ICreateTransactionInput,
   ISafeTransaction,
@@ -46,20 +47,31 @@ const SORT_MAP: Record<string, Record<string, 1 | -1>> = {
 
 // Combines the "month" shorthand with explicit dateFrom/dateTo into one
 // intersected [start, end) range instead of two competing Mongo filters.
+// month/dateFrom/dateTo are always "as if UTC" calendar boundaries (Date.UTC / the literal "Z"
+// suffix below) — they represent the *client's local* calendar day/month, not a UTC one, so
+// every boundary gets shifted by tzOffsetMinutes into the real UTC instant it corresponds to
+// before being compared against `date` (a true UTC instant). See src/utils/timezone.ts.
 export function buildDateFilter(query: ITransactionListQuery): { $gte: Date; $lt: Date } | null {
+  const tzOffsetMinutes = parseTzOffsetMinutes(query.tzOffsetMinutes);
   let start = -Infinity;
   let end = Infinity;
 
   if (query.month) {
     const [year, month] = query.month.split("-").map(Number);
-    start = Math.max(start, Date.UTC(year, month - 1, 1));
-    end = Math.min(end, Date.UTC(year, month, 1));
+    start = Math.max(start, localFieldsMsToInstantMs(Date.UTC(year, month - 1, 1), tzOffsetMinutes));
+    end = Math.min(end, localFieldsMsToInstantMs(Date.UTC(year, month, 1), tzOffsetMinutes));
   }
   if (query.dateFrom) {
-    start = Math.max(start, new Date(`${query.dateFrom}T00:00:00.000Z`).getTime());
+    start = Math.max(
+      start,
+      localFieldsMsToInstantMs(new Date(`${query.dateFrom}T00:00:00.000Z`).getTime(), tzOffsetMinutes),
+    );
   }
   if (query.dateTo) {
-    end = Math.min(end, new Date(`${query.dateTo}T23:59:59.999Z`).getTime() + 1);
+    end = Math.min(
+      end,
+      localFieldsMsToInstantMs(new Date(`${query.dateTo}T23:59:59.999Z`).getTime(), tzOffsetMinutes) + 1,
+    );
   }
 
   if (start === -Infinity && end === Infinity) return null;

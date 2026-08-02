@@ -14,14 +14,20 @@ import {
   IWalletUsageItem,
 } from "../interfaces/report.interface";
 import { buildReportBuckets, formatMonthShortLabel, generateMonthRangeUtc } from "../utils/reportBuckets";
+import { instantToLocalFieldsDate, shiftToInstant } from "../utils/timezone";
 
 function computeChangePercent(current: number, previous: number): number {
   if (previous === 0) return current === 0 ? 0 : 100;
   return ((current - previous) / Math.abs(previous)) * 100;
 }
 
-function periodFilter(idUser: string, dateFrom: string, dateTo: string): Record<string, any> {
-  return { idUser, date: buildDateFilter({ dateFrom, dateTo }) };
+function periodFilter(
+  idUser: string,
+  dateFrom: string,
+  dateTo: string,
+  tzOffsetMinutes: number,
+): Record<string, any> {
+  return { idUser, date: buildDateFilter({ dateFrom, dateTo, tzOffsetMinutes }) };
 }
 
 // Score is the share of this month's income left over after BOTH spending and investing —
@@ -55,9 +61,10 @@ export const ReportService = {
     dateTo: string,
     previousDateFrom: string,
     previousDateTo: string,
+    tzOffsetMinutes: number,
   ): Promise<IReportSummary> {
-    const currentFilter = periodFilter(idUser, dateFrom, dateTo);
-    const previousFilter = periodFilter(idUser, previousDateFrom, previousDateTo);
+    const currentFilter = periodFilter(idUser, dateFrom, dateTo, tzOffsetMinutes);
+    const previousFilter = periodFilter(idUser, previousDateFrom, previousDateTo, tzOffsetMinutes);
 
     const [current, currentCount, previous, previousCount] = await Promise.all([
       computeSummary(idUser, currentFilter),
@@ -92,8 +99,13 @@ export const ReportService = {
 
   // One aggregation over every wallet at once (a transaction can count toward up to two
   // wallets — both transfer legs) instead of one query per wallet.
-  async getWalletUsage(idUser: string, dateFrom: string, dateTo: string): Promise<IWalletUsageItem[]> {
-    const dateFilter = buildDateFilter({ dateFrom, dateTo });
+  async getWalletUsage(
+    idUser: string,
+    dateFrom: string,
+    dateTo: string,
+    tzOffsetMinutes: number,
+  ): Promise<IWalletUsageItem[]> {
+    const dateFilter = buildDateFilter({ dateFrom, dateTo, tzOffsetMinutes });
 
     const [wallets, grouped] = await Promise.all([
       WalletModel.find({ idUser }).sort({ order: 1, createdAt: 1 }).lean(),
@@ -139,8 +151,9 @@ export const ReportService = {
     dateFrom: string,
     dateTo: string,
     limit: number,
+    tzOffsetMinutes: number,
   ): Promise<ITopSpendingItem[]> {
-    const dateFilter = buildDateFilter({ dateFrom, dateTo });
+    const dateFilter = buildDateFilter({ dateFrom, dateTo, tzOffsetMinutes });
 
     const transactions = await TransactionModel.find({ idUser, type: "expense", date: dateFilter })
       .sort({ amount: -1 })
@@ -179,13 +192,14 @@ export const ReportService = {
     dateFrom: string,
     dateTo: string,
     locale: string,
+    tzOffsetMinutes: number,
   ): Promise<ICashFlowPoint[]> {
-    const dateFilter = buildDateFilter({ dateFrom, dateTo });
+    const dateFilter = buildDateFilter({ dateFrom, dateTo, tzOffsetMinutes });
     const transactions = await TransactionModel.find({ idUser, date: dateFilter })
       .select("type amount date")
       .lean();
 
-    const buckets = buildReportBuckets(dateFrom, dateTo, locale);
+    const buckets = buildReportBuckets(dateFrom, dateTo, locale, tzOffsetMinutes);
     const now = Date.now();
 
     return buckets.map((bucket) => {
@@ -208,11 +222,23 @@ export const ReportService = {
 
   // Returns both income and expense per month in one call so the FE can toggle the
   // Pengeluaran/Pemasukan metric without refetching.
-  async getMonthlyTrend(idUser: string, monthsCount: number, locale: string): Promise<IMonthlyTrendPoint[]> {
-    const months = generateMonthRangeUtc(new Date(), monthsCount - 1, 0);
-    const rangeStart = months[0];
-    const rangeEnd = new Date(
-      Date.UTC(months[months.length - 1].getUTCFullYear(), months[months.length - 1].getUTCMonth() + 1, 1),
+  async getMonthlyTrend(
+    idUser: string,
+    monthsCount: number,
+    locale: string,
+    tzOffsetMinutes: number,
+  ): Promise<IMonthlyTrendPoint[]> {
+    // `months` are the client's local calendar months, expressed via UTC-field arithmetic (see
+    // src/utils/timezone.ts) so generateMonthRangeUtc's plain getUTC*/Date.UTC math treats them
+    // as local fields. The query range is shifted back into real UTC instants for the $match.
+    const localNow = instantToLocalFieldsDate(new Date(), tzOffsetMinutes);
+    const months = generateMonthRangeUtc(localNow, monthsCount - 1, 0);
+    const rangeStart = shiftToInstant(months[0], tzOffsetMinutes);
+    const rangeEnd = shiftToInstant(
+      new Date(
+        Date.UTC(months[months.length - 1].getUTCFullYear(), months[months.length - 1].getUTCMonth() + 1, 1),
+      ),
+      tzOffsetMinutes,
     );
 
     const grouped = await TransactionModel.aggregate([
@@ -223,9 +249,13 @@ export const ReportService = {
           date: { $gte: rangeStart, $lt: rangeEnd },
         },
       },
+      // Shift each transaction's real UTC instant back into the client's local calendar fields
+      // (mirrors instantToLocalFieldsDate) before extracting $year/$month, so a transaction near
+      // a local month boundary groups into the correct local month, not the UTC one.
+      { $addFields: { localDate: { $dateAdd: { startDate: "$date", unit: "minute", amount: -tzOffsetMinutes } } } },
       {
         $group: {
-          _id: { year: { $year: "$date" }, month: { $month: "$date" }, type: "$type" },
+          _id: { year: { $year: "$localDate" }, month: { $month: "$localDate" }, type: "$type" },
           total: { $sum: "$amount" },
         },
       },
@@ -243,15 +273,19 @@ export const ReportService = {
     return months.map((month) => {
       const key = `${month.getUTCFullYear()}-${month.getUTCMonth() + 1}`;
       const entry = totals.get(key) ?? { income: 0, expense: 0 };
-      return { label: formatMonthShortLabel(month, locale), income: entry.income, expense: entry.expense };
+      return {
+        label: formatMonthShortLabel(month, locale, tzOffsetMinutes),
+        income: entry.income,
+        expense: entry.expense,
+      };
     });
   },
 
   // Combines three otherwise-unrelated domains (wallet balances, investment account values,
   // this month's income/expense) into a single call for the dashboard's overview cards, instead
   // of the frontend composing three separate requests.
-  async getDashboardSummary(idUser: string, month: string): Promise<IDashboardSummary> {
-    const dateFilter = buildDateFilter({ month });
+  async getDashboardSummary(idUser: string, month: string, tzOffsetMinutes: number): Promise<IDashboardSummary> {
+    const dateFilter = buildDateFilter({ month, tzOffsetMinutes });
 
     const [wallets, instruments, monthly, investmentInflowEntries] = await Promise.all([
       WalletModel.find({ idUser }).lean(),

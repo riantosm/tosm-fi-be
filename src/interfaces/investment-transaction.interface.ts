@@ -91,6 +91,8 @@ export interface IInvestmentTransactionListQuery {
   sort?: InvestmentTransactionSortOption;
   page?: number;
   limit?: number;
+  /** Client's `Date.getTimezoneOffset()` value — see src/utils/timezone.ts. */
+  tzOffsetMinutes?: number;
 }
 
 export interface IInvestmentTransactionListResult {
@@ -112,6 +114,8 @@ export interface INetWorthTimelineQuery {
   /** Optional subset of instrument ids to scope the timeline to; omit for the whole portfolio. */
   idInstrument?: string[];
   locale: string;
+  /** Client's `Date.getTimezoneOffset()` value — see src/utils/timezone.ts. */
+  tzOffsetMinutes?: number;
 }
 
 export interface INetWorthTimelinePoint {

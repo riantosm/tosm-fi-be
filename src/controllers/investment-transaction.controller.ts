@@ -2,12 +2,23 @@ import { Response } from "express";
 import { AuthRequest } from "../middlewares/auth.middleware";
 import { InvestmentTransactionService } from "../services/investment-transaction.service";
 import { responseHandler } from "../utils/responseHandler";
+import { parseTzOffsetMinutes } from "../utils/timezone";
 
 export const InvestmentTransactionController = {
   async list(req: AuthRequest, res: Response) {
     try {
-      const { idInstrument, idInvestmentAccount, type, dateFrom, dateTo, search, sort, page, limit } =
-        req.query;
+      const {
+        idInstrument,
+        idInvestmentAccount,
+        type,
+        dateFrom,
+        dateTo,
+        search,
+        sort,
+        page,
+        limit,
+        tzOffsetMinutes,
+      } = req.query;
 
       const result = await InvestmentTransactionService.getList(req.currentUser!.idUser, {
         idInstrument: idInstrument as string | undefined,
@@ -19,6 +30,7 @@ export const InvestmentTransactionController = {
         sort: sort as any,
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
+        tzOffsetMinutes: tzOffsetMinutes !== undefined ? parseTzOffsetMinutes(tzOffsetMinutes) : undefined,
       });
 
       return responseHandler(res, {
@@ -37,7 +49,7 @@ export const InvestmentTransactionController = {
 
   async netWorthTimeline(req: AuthRequest, res: Response) {
     try {
-      const { granularity, dateFrom, dateTo, locale, idInstrument } = req.query;
+      const { granularity, dateFrom, dateTo, locale, idInstrument, tzOffsetMinutes } = req.query;
 
       if (!granularity || !dateFrom || !dateTo) {
         return responseHandler(res, {
@@ -60,6 +72,7 @@ export const InvestmentTransactionController = {
         dateTo: dateTo as string,
         locale: (locale as string) || "id",
         idInstrument: idInstrumentList,
+        tzOffsetMinutes: parseTzOffsetMinutes(tzOffsetMinutes),
       });
 
       return responseHandler(res, {

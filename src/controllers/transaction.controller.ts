@@ -6,8 +6,20 @@ import { responseHandler } from "../utils/responseHandler";
 export const TransactionController = {
   async list(req: AuthRequest, res: Response) {
     try {
-      const { month, type, idWallet, idCategory, idSubCategory, dateFrom, dateTo, search, sort, page, limit } =
-        req.query;
+      const {
+        month,
+        type,
+        idWallet,
+        idCategory,
+        idSubCategory,
+        dateFrom,
+        dateTo,
+        search,
+        sort,
+        page,
+        limit,
+        tzOffsetMinutes,
+      } = req.query;
 
       const result = await TransactionService.getList(req.currentUser!.idUser, {
         month: month as string | undefined,
@@ -21,6 +33,7 @@ export const TransactionController = {
         sort: sort as any,
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
+        tzOffsetMinutes: tzOffsetMinutes !== undefined ? Number(tzOffsetMinutes) : undefined,
       });
 
       return responseHandler(res, {

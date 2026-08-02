@@ -1,8 +1,12 @@
 // Ported from the frontend's src/utils/report-period.ts (buildReportBuckets) so the cash-flow
-// endpoint buckets identically to how the client used to bucket client-side. Anchored in UTC
-// (Date.UTC / getUTC*) rather than local-timezone Date math, matching how buildDateFilter()
-// already interprets "YYYY-MM-DD" query params as UTC day boundaries — bucket boundaries must
-// tile exactly inside that same window, not drift against it.
+// endpoint buckets identically to how the client used to bucket client-side. Internally anchored
+// in UTC (Date.UTC / getUTC*) since dateFrom/dateTo/labels represent the *client's local*
+// calendar fields expressed via UTC-field arithmetic — matching how buildDateFilter() interprets
+// "YYYY-MM-DD" query params the same way. Bucket start/end are shifted by tzOffsetMinutes right
+// before being returned so they become real UTC instants, comparable against `date` (a true UTC
+// instant) — see src/utils/timezone.ts.
+
+import { instantToLocalFieldsDate, shiftToInstant } from "./timezone";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 const HOUR_BLOCK_STARTS = [0, 4, 8, 12, 16, 20];
@@ -38,31 +42,50 @@ function clampDate(date: Date, max: Date): Date {
   return date.getTime() > max.getTime() ? max : date;
 }
 
+function shiftBuckets(buckets: ReportBucket[], tzOffsetMinutes: number): ReportBucket[] {
+  return buckets.map((bucket) => ({
+    label: bucket.label,
+    start: shiftToInstant(bucket.start, tzOffsetMinutes),
+    end: shiftToInstant(bucket.end, tzOffsetMinutes),
+  }));
+}
+
 /** Chooses bucket granularity (hourly/daily/weekly/monthly) from the period span. */
-export function buildReportBuckets(dateFrom: string, dateTo: string, locale: string): ReportBucket[] {
+export function buildReportBuckets(
+  dateFrom: string,
+  dateTo: string,
+  locale: string,
+  tzOffsetMinutes = 0,
+): ReportBucket[] {
   const from = parseIsoDateUtc(dateFrom);
   const to = parseIsoDateUtc(dateTo);
   const spanDays = daysBetweenInclusiveUtc(from, to);
 
   if (spanDays <= 1) {
-    return HOUR_BLOCK_STARTS.map((hour) => ({
-      label: `${String(hour).padStart(2, "0")}:00`,
-      start: new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), hour, 0, 0, 0)),
-      end: new Date(
-        Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), hour + 3, 59, 59, 999),
-      ),
-    }));
+    return shiftBuckets(
+      HOUR_BLOCK_STARTS.map((hour) => ({
+        label: `${String(hour).padStart(2, "0")}:00`,
+        start: new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), hour, 0, 0, 0)),
+        end: new Date(
+          Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), hour + 3, 59, 59, 999),
+        ),
+      })),
+      tzOffsetMinutes,
+    );
   }
 
   if (spanDays <= 14) {
-    return Array.from({ length: spanDays }, (_, index) => {
-      const day = addDaysUtc(from, index);
-      return {
-        label: new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" }).format(day),
-        start: startOfDayUtc(day),
-        end: endOfDayUtc(day),
-      };
-    });
+    return shiftBuckets(
+      Array.from({ length: spanDays }, (_, index) => {
+        const day = addDaysUtc(from, index);
+        return {
+          label: new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" }).format(day),
+          start: startOfDayUtc(day),
+          end: endOfDayUtc(day),
+        };
+      }),
+      tzOffsetMinutes,
+    );
   }
 
   if (spanDays <= 62) {
@@ -79,7 +102,7 @@ export function buildReportBuckets(dateFrom: string, dateTo: string, locale: str
       cursor = addDaysUtc(weekEnd, 1);
       weekIndex += 1;
     }
-    return buckets;
+    return shiftBuckets(buckets, tzOffsetMinutes);
   }
 
   const buckets: ReportBucket[] = [];
@@ -93,7 +116,7 @@ export function buildReportBuckets(dateFrom: string, dateTo: string, locale: str
     });
     cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
   }
-  return buckets;
+  return shiftBuckets(buckets, tzOffsetMinutes);
 }
 
 export function startOfMonthUtc(date: Date): Date {
@@ -112,8 +135,8 @@ export function generateMonthRangeUtc(center: Date, before: number, after: numbe
   return months;
 }
 
-export function formatMonthShortLabel(date: Date, locale: string): string {
+export function formatMonthShortLabel(date: Date, locale: string, tzOffsetMinutes = 0): string {
   const label = new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" }).format(date);
-  const currentYear = new Date().getUTCFullYear();
+  const currentYear = instantToLocalFieldsDate(new Date(), tzOffsetMinutes).getUTCFullYear();
   return date.getUTCFullYear() === currentYear ? label : `${label} '${String(date.getUTCFullYear()).slice(-2)}`;
 }

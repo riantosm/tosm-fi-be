@@ -2,16 +2,17 @@ import { Response } from "express";
 import { AuthRequest } from "../middlewares/auth.middleware";
 import { ReportService } from "../services/report.service";
 import { responseHandler } from "../utils/responseHandler";
+import { instantToLocalFieldsDate, parseTzOffsetMinutes } from "../utils/timezone";
 
-function currentMonthParam(): string {
-  const now = new Date();
+function currentMonthParam(tzOffsetMinutes: number): string {
+  const now = instantToLocalFieldsDate(new Date(), tzOffsetMinutes);
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 export const ReportController = {
   async summary(req: AuthRequest, res: Response) {
     try {
-      const { dateFrom, dateTo, previousDateFrom, previousDateTo } = req.query;
+      const { dateFrom, dateTo, previousDateFrom, previousDateTo, tzOffsetMinutes } = req.query;
       if (!dateFrom || !dateTo || !previousDateFrom || !previousDateTo) {
         return responseHandler(res, {
           message: "dateFrom, dateTo, previousDateFrom, dan previousDateTo wajib diisi",
@@ -26,6 +27,7 @@ export const ReportController = {
         dateTo as string,
         previousDateFrom as string,
         previousDateTo as string,
+        parseTzOffsetMinutes(tzOffsetMinutes),
       );
 
       return responseHandler(res, { message: "Berhasil mengambil ringkasan laporan", data: summary });
@@ -41,7 +43,7 @@ export const ReportController = {
 
   async walletUsage(req: AuthRequest, res: Response) {
     try {
-      const { dateFrom, dateTo } = req.query;
+      const { dateFrom, dateTo, tzOffsetMinutes } = req.query;
       if (!dateFrom || !dateTo) {
         return responseHandler(res, {
           message: "dateFrom dan dateTo wajib diisi",
@@ -54,6 +56,7 @@ export const ReportController = {
         req.currentUser!.idUser,
         dateFrom as string,
         dateTo as string,
+        parseTzOffsetMinutes(tzOffsetMinutes),
       );
 
       return responseHandler(res, { message: "Berhasil mengambil penggunaan dompet", data: items });
@@ -69,7 +72,7 @@ export const ReportController = {
 
   async topSpending(req: AuthRequest, res: Response) {
     try {
-      const { dateFrom, dateTo, limit } = req.query;
+      const { dateFrom, dateTo, limit, tzOffsetMinutes } = req.query;
       if (!dateFrom || !dateTo) {
         return responseHandler(res, {
           message: "dateFrom dan dateTo wajib diisi",
@@ -83,6 +86,7 @@ export const ReportController = {
         dateFrom as string,
         dateTo as string,
         limit ? Number(limit) : 10,
+        parseTzOffsetMinutes(tzOffsetMinutes),
       );
 
       return responseHandler(res, { message: "Berhasil mengambil pengeluaran terbesar", data: items });
@@ -98,7 +102,7 @@ export const ReportController = {
 
   async cashFlow(req: AuthRequest, res: Response) {
     try {
-      const { dateFrom, dateTo, locale } = req.query;
+      const { dateFrom, dateTo, locale, tzOffsetMinutes } = req.query;
       if (!dateFrom || !dateTo) {
         return responseHandler(res, {
           message: "dateFrom dan dateTo wajib diisi",
@@ -112,6 +116,7 @@ export const ReportController = {
         dateFrom as string,
         dateTo as string,
         (locale as string) || "id",
+        parseTzOffsetMinutes(tzOffsetMinutes),
       );
 
       return responseHandler(res, { message: "Berhasil mengambil cash flow", data: points });
@@ -127,12 +132,13 @@ export const ReportController = {
 
   async monthlyTrend(req: AuthRequest, res: Response) {
     try {
-      const { months, locale } = req.query;
+      const { months, locale, tzOffsetMinutes } = req.query;
 
       const points = await ReportService.getMonthlyTrend(
         req.currentUser!.idUser,
         months ? Number(months) : 12,
         (locale as string) || "id",
+        parseTzOffsetMinutes(tzOffsetMinutes),
       );
 
       return responseHandler(res, { message: "Berhasil mengambil tren bulanan", data: points });
@@ -148,11 +154,13 @@ export const ReportController = {
 
   async dashboardSummary(req: AuthRequest, res: Response) {
     try {
-      const { month } = req.query;
+      const { month, tzOffsetMinutes } = req.query;
+      const tz = parseTzOffsetMinutes(tzOffsetMinutes);
 
       const summary = await ReportService.getDashboardSummary(
         req.currentUser!.idUser,
-        (month as string) || currentMonthParam(),
+        (month as string) || currentMonthParam(tz),
+        tz,
       );
 
       return responseHandler(res, { message: "Berhasil mengambil ringkasan dashboard", data: summary });
