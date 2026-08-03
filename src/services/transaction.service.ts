@@ -447,6 +447,34 @@ function effectSourceOf(doc: {
   };
 }
 
+// Insert + wallet/category delta application, assuming an external session —
+// used both by the public create() (which starts its own session) and by
+// schedule.service.ts's "pay occurrence" flow (which needs this to run
+// inside ITS OWN session, so the created transaction and the occurrence's
+// status update commit or roll back together).
+export async function createCore(
+  idUser: string,
+  input: ICreateTransactionInput,
+  session: mongoose.ClientSession,
+): Promise<ISafeTransaction> {
+  await validatePayload(idUser, input);
+  const normalized = normalizeInput(input);
+
+  const [doc] = await TransactionModel.create([{ idUser, ...normalized }], { session });
+
+  const walletDeltas = accumulateWalletDeltas([], getWalletDeltas(normalized));
+  await applyWalletDeltaMap(idUser, walletDeltas, session);
+
+  await applyCategoryDelta(
+    idUser,
+    { idCategory: null, idSubCategory: null },
+    { idCategory: normalized.idCategory, idSubCategory: normalized.idSubCategory },
+    session,
+  );
+
+  return toSafeTransaction(doc);
+}
+
 export const TransactionService = {
   async getList(idUser: string, query: ITransactionListQuery): Promise<ITransactionListResult> {
     const filter = buildFilter(idUser, query);
@@ -490,27 +518,13 @@ export const TransactionService = {
   },
 
   async create(idUser: string, input: ICreateTransactionInput): Promise<ISafeTransaction> {
-    await validatePayload(idUser, input);
-    const normalized = normalizeInput(input);
-
     const session = await mongoose.startSession();
     try {
-      let created: any;
+      let created!: ISafeTransaction;
       await session.withTransaction(async () => {
-        const [doc] = await TransactionModel.create([{ idUser, ...normalized }], { session });
-        created = doc;
-
-        const walletDeltas = accumulateWalletDeltas([], getWalletDeltas(normalized));
-        await applyWalletDeltaMap(idUser, walletDeltas, session);
-
-        await applyCategoryDelta(
-          idUser,
-          { idCategory: null, idSubCategory: null },
-          { idCategory: normalized.idCategory, idSubCategory: normalized.idSubCategory },
-          session,
-        );
+        created = await createCore(idUser, input, session);
       });
-      return toSafeTransaction(created);
+      return created;
     } finally {
       await session.endSession();
     }
