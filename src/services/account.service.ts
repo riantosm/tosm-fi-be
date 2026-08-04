@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { BudgetModel } from "../models/budget.model";
 import { CategoryModel } from "../models/category.model";
 import { InstrumentModel } from "../models/instrument.model";
 import { InvestmentTransactionModel } from "../models/investment-transaction.model";
@@ -15,6 +16,7 @@ export const AccountService = {
         await WalletModel.deleteMany({ idUser }).session(session);
         await CategoryModel.deleteMany({ idUser }).session(session);
         await InstrumentModel.deleteMany({ idUser }).session(session);
+        await BudgetModel.deleteMany({ idUser }).session(session);
       });
     } finally {
       await session.endSession();

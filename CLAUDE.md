@@ -57,6 +57,15 @@ Every response goes through `src/utils/responseHandler.ts`, producing `{ message
 - Routes: `/api/categories/{"", ":idCategory", "reorder", ":idCategory/subcategories", ":idCategory/subcategories/:idSubCategory", ":idCategory/subcategories/reorder"}` (`src/routes/category.routes.ts`) — both `/reorder` routes (category-level and subcategory-level) are registered before their respective generic `/:idCategory` or `/:idSubCategory` PATCH routes, same ordering gotcha as wallets.
 - All category routes require `requireAuth` + `requireActiveUser` — no `requireAdmin`.
 
+### Budget domain (reminder-only monthly spending limits)
+
+- `BudgetModel` (`src/models/budget.model.ts`): `idUser` (owner, filters every query), `name`, `color`, `idCategory` (nullable string — `null` means the budget applies to every expense category for that user, e.g. "Monthly Spending"; set means it's scoped to one category, e.g. "Makan"), `limitAmount`. `childLimits` is an **embedded** subdocument array of `{ idCategory, idSubCategory, limitAmount }`, but unlike `Category.subCategories` its subdocuments have **`{ _id: false }`** — a child limit is identified by its `idCategory`/`idSubCategory` pair, not an internal id, and the frontend always replaces the whole array wholesale rather than mutating one entry via a per-item `.id()` lookup.
+- This domain is purely a client-side reminder — it never reads or writes `Wallet`/`Transaction`/`Category` documents, and exceeding a limit has no effect on any other domain. "Spent" figures the frontend displays alongside a budget's limits are computed entirely from the existing transaction endpoints, not stored here.
+- **`update()` is a genuine partial patch**, unlike category's/wallet's full-replace `update()` — each field is only touched `if (input.field !== undefined)`. This is required because the frontend's "set a single row's limit" flow sends `{ childLimits }` alone and must not clobber `name`/`color`/`limitAmount`.
+- No `Schema.Types.ObjectId`/`ref` for `idCategory`/`idSubCategory`, matching every other domain in this codebase — plain strings, no server-side join against `Category` (the frontend already has the full category list locally and does its own lookup).
+- Routes: `/api/budgets/{"", ":idBudget"}` (`src/routes/budget.routes.ts`) — no reorder endpoint, no static-vs-dynamic route ordering concern.
+- All budget routes require `requireAuth` + `requireActiveUser` — no `requireAdmin`. Included in `AccountService.resetData`'s danger-zone wipe alongside wallet/category/transaction/instrument.
+
 ### Transaction domain
 
 - `TransactionModel` (`src/models/transaction.model.ts`): `idUser` (owner), `type: "income" | "expense" | "transfer" | "correction"`, `idWallet`/`idCategory`/`idSubCategory`/`idWalletFrom`/`idWalletTo` (all nullable strings — which ones apply depends on `type`, exactly like the FE's `Transaction` type: transfer uses `idWalletFrom`/`idWalletTo` instead of `idWallet`, transfer/correction never carry a category), `title`, `notes`, `amount`, `date`. Indexed on `{ idUser, date }` (default sort/month filtering) and `{ idUser, idWallet }` / `{ idUser, idCategory }` (filter chips).
