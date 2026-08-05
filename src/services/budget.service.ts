@@ -34,11 +34,12 @@ async function findOwnedBudget(idUser: string, idBudget: string) {
 
 export const BudgetService = {
   async getList(idUser: string): Promise<ISafeBudget[]> {
-    const budgets = await BudgetModel.find({ idUser }).sort({ createdAt: 1 }).lean();
+    const budgets = await BudgetModel.find({ idUser }).sort({ order: 1, createdAt: 1 }).lean();
     return budgets.map(toSafeBudget);
   },
 
   async create(idUser: string, input: ICreateBudgetInput): Promise<ISafeBudget> {
+    const order = await BudgetModel.countDocuments({ idUser });
     const budget = await BudgetModel.create({
       idUser,
       name: input.name,
@@ -47,6 +48,7 @@ export const BudgetService = {
       limitAmount: input.limitAmount,
       childLimits: [],
       isPinned: input.isPinned ?? false,
+      order,
     });
     return toSafeBudget(budget);
   },
@@ -70,5 +72,14 @@ export const BudgetService = {
   async remove(idUser: string, idBudget: string): Promise<void> {
     const budget = await BudgetModel.findOneAndDelete({ _id: idBudget, idUser });
     if (!budget) throw new Error("Anggaran tidak ditemukan");
+  },
+
+  async reorder(idUser: string, orderedIds: string[]): Promise<ISafeBudget[]> {
+    await Promise.all(
+      orderedIds.map((idBudget, order) =>
+        BudgetModel.updateOne({ _id: idBudget, idUser }, { order }),
+      ),
+    );
+    return BudgetService.getList(idUser);
   },
 };

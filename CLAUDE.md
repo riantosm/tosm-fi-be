@@ -63,7 +63,8 @@ Every response goes through `src/utils/responseHandler.ts`, producing `{ message
 - This domain is purely a client-side reminder — it never reads or writes `Wallet`/`Transaction`/`Category` documents, and exceeding a limit has no effect on any other domain. "Spent" figures the frontend displays alongside a budget's limits are computed entirely from the existing transaction endpoints, not stored here.
 - **`update()` is a genuine partial patch**, unlike category's/wallet's full-replace `update()` — each field is only touched `if (input.field !== undefined)`. This is required because the frontend's "set a single row's limit" flow sends `{ childLimits }` alone and must not clobber `name`/`color`/`limitAmount`.
 - No `Schema.Types.ObjectId`/`ref` for `idCategory`/`idSubCategory`, matching every other domain in this codebase — plain strings, no server-side join against `Category` (the frontend already has the full category list locally and does its own lookup).
-- Routes: `/api/budgets/{"", ":idBudget"}` (`src/routes/budget.routes.ts`) — no reorder endpoint, no static-vs-dynamic route ordering concern.
+- `order` (drag-to-reorder among a user's budgets, same convention as wallet/category): `GET /budgets` always sorts by `order` ascending, `PATCH /budgets/reorder` takes `orderedIds: string[]` and writes each budget's `order` to its index in that array.
+- Routes: `/api/budgets/{"", ":idBudget", "reorder"}` (`src/routes/budget.routes.ts`) — `/reorder` is registered before the generic `/:idBudget` PATCH route, same static-vs-dynamic ordering gotcha as wallet/category.
 - All budget routes require `requireAuth` + `requireActiveUser` — no `requireAdmin`. Included in `AccountService.resetData`'s danger-zone wipe alongside wallet/category/transaction/instrument.
 
 ### Transaction domain

@@ -23,6 +23,7 @@ const BudgetSchema = new Schema<IBudget>(
     limitAmount: { type: Number, required: true },
     childLimits: { type: [ChildLimitSchema], default: [] },
     isPinned: { type: Boolean, default: false },
+    order: { type: Number, default: 0 },
   },
   { timestamps: true },
 );

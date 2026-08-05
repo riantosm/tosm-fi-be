@@ -14,6 +14,8 @@ export interface IBudget {
   childLimits: IChildLimit[];
   // Shown on the Dashboard's budgets widget when true.
   isPinned: boolean;
+  // Persists manual drag-to-reorder — lower sorts first.
+  order: number;
 }
 
 export interface ICreateBudgetInput {

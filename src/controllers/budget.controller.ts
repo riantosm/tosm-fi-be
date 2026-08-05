@@ -122,4 +122,32 @@ export const BudgetController = {
       });
     }
   },
+
+  async reorder(req: AuthRequest, res: Response) {
+    try {
+      const { orderedIds } = req.body;
+
+      if (!Array.isArray(orderedIds)) {
+        return responseHandler(res, {
+          message: "orderedIds wajib diisi",
+          isSuccess: false,
+          status: 400,
+        });
+      }
+
+      const budgets = await BudgetService.reorder(req.currentUser!.idUser, orderedIds);
+
+      return responseHandler(res, {
+        message: "Urutan anggaran berhasil disimpan",
+        data: budgets,
+      });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal menyimpan urutan anggaran",
+        isSuccess: false,
+        status: 400,
+        error,
+      });
+    }
+  },
 };
