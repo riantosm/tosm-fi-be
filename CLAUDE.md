@@ -12,7 +12,7 @@ npm run start     # node dist/index.js
 
 There is no test suite/framework configured in this project.
 
-Requires `.env` with `MONGO_URI`, `PORT`, `JWT_SECRET` (see `.env.example`).
+Requires `.env` with `MONGO_URI`, `PORT`, `JWT_SECRET`, plus `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` (and optionally `LLM_FALLBACK_MODELS`, `LLM_REASONING_EFFORT`) for the assistant domain (see `.env.example`).
 
 ## Architecture
 
@@ -93,6 +93,24 @@ Every response goes through `src/utils/responseHandler.ts`, producing `{ message
 - `DELETE /api/account/data` (`src/routes/account.routes.ts`, `requireAuth` + `requireActiveUser`, no `requireAdmin`) wipes every document owned by the calling user — backs the frontend Settings page's "Zona Berbahaya" / Reset Data button.
 - `AccountService.resetData` (`src/services/account.service.ts`) runs one `mongoose.startSession()` + `session.withTransaction(...)` and issues `deleteMany({ idUser }, { session })` against `TransactionModel`, `InvestmentTransactionModel`, `WalletModel`, `CategoryModel`, and `InstrumentModel` — same session/ownership-scoping convention as every other domain's delete path. Transactions/investment-transactions are deleted before wallets/categories/instruments purely for readability (there are no side-effect deltas to compute here, unlike a single transaction delete — this wipes the wallet/category/instrument documents themselves, not just their counters).
 - No `UserModel` document is touched — this clears a user's financial data, not their account/login.
+
+### Assistant domain (Catat Cepat, AI transaction entry)
+
+The frontend's Catat Cepat chat turns casual Indonesian ("hari ini beli warteg 12rb sama kopi 8rb") into transaction drafts, asks for anything missing, previews them, and saves only after a confirmation. Two endpoints, both `requireAuth` + `requireActiveUser`, nothing persisted between requests (Vercel serverless — the frontend sends the conversation and the pending drafts every time):
+
+- `POST /api/assistant/chat` — body `{ history: {role, text}[], drafts, tzOffsetMinutes, language: "id"|"en"|"jp", hasPreview }` → `{ intent: "ask"|"preview"|"save"|"cancel"|"unknown", reply, drafts, quickReplies? }`. It never writes anything.
+- `POST /api/assistant/commit` — body `{ drafts, language?, tzOffsetMinutes? }` → `{ transactions, investmentTransactions }`, saved in **one** Mongo session. On failure: 400 with `data.idDraft` naming the draft that failed (the frontend marks that preview row).
+
+Draft kinds cover every input the app has: `income`, `expense`, `transfer`, `correction`, `investmentIn`, `investmentOut`, `investmentTransfer`, `investmentPl` (`IAssistantDraft` in `src/interfaces/assistant.interface.ts` documents which id fields apply to which kind).
+
+- **LLM client** (`src/utils/llm.ts`): plain `fetch` against any OpenAI-compatible chat-completions API (Gemini's `/v1beta/openai` by default; Groq/OpenRouter work by changing env only). Deliberately not the `openai` SDK — the current SDK needs Node ≥ 22, and Vercel's Node version isn't pinned here. Output is constrained with `response_format: json_schema` (strict). Gemini's free tier is often overloaded (503 / hanging requests), so: each attempt is capped (20s), the whole call has a 45s budget, a slow model is *hedged* after 6s (the next model starts too, first answer wins), a quick 5xx gets one retry, and a model that just failed is tried last for 60s on that warm instance — or for as long as a 429 says ("Please retry in 9h11m…": `gemini-3.8-flash`'s free tier allows only 20 requests/day, so a busy day ends up served by the fallbacks). `LlmError.kind` → the controller answers 429 for both `quota` and overload (the frontend shows "AI lagi sibuk") and 500 for `config`.
+- **Prompt** (`src/utils/assistantPrompt.ts`): the model never sees Mongo ids. Wallets/categories/subcategories/investment accounts/pending drafts get short refs (`W1`, `C2`, `C2.1`, `A3`, `D1`) that `assistant.service.ts` maps back; soft-deleted investment accounts are left out. Dates go to the model as the user's local `YYYY-MM-DD` + `HH:mm` (via `utils/timezone.ts`) and come back the same way.
+- **Server-side rules the model isn't trusted with** (`assistant.service.ts`):
+  - A new transaction with no time reference in the user's message gets `missing: ["date"]` and the "Apakah transaksi ini hari ini?" question (`enforceDateRule`, a regex over Indonesian/English/Japanese time words; "makan siang" is not a time). Exception: items added to a conversation that already settled its date.
+  - Missing required info (date, amount, wallets, accounts) always becomes an `ask` with the right quick replies (date buttons, wallet chips with colour dots, account chips with compact values), never a broken preview.
+  - Every previewed draft is validated against the user's live data (ownership, category type, same-wallet transfers, withdrawals over `currentValue`, no-op corrections) and gets an `error` string in the user's language; revisions get `changed` fields for the frontend's "old → new" chips.
+  - Plain confirmations ("ok, catat", "gas") and cancellations ("batal", "gak jadi") on a complete preview are answered without an LLM call.
+- **Commit** reuses the domains' own session-accepting cores so every side effect matches a manual entry: `createCore` (transaction.service.ts) for wallet transactions, and `createMoneyInCore` / `createMoneyOutCore` / `createTransferCore` / `createProfitLossCore` (investment-transaction.service.ts — the public `create*` methods now just wrap these in their own session). `investmentIn` = wallet expense + linked ledger "in" row (the manual "Catat sebagai Investasi" pair); `investmentOut` with a wallet = wallet income + linked "out" row (WithdrawalFormModal's pair). Corrections and value updates state an end state, so they run last and compute their delta against the live balance/value inside the session.
 
 ### Client error log domain
 

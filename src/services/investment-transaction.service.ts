@@ -129,8 +129,17 @@ async function findOwnedAccount(
   return { instrument, account };
 }
 
-async function assertOwnedTransaction(idUser: string, idTransaction: string): Promise<void> {
-  const exists = await TransactionModel.exists({ _id: idTransaction, idUser });
+// Reads through the caller's session when given one, so a wallet transaction
+// created earlier in that same session (assistant commit's top up / withdraw
+// pairs) is visible before it commits.
+async function assertOwnedTransaction(
+  idUser: string,
+  idTransaction: string,
+  session?: mongoose.ClientSession
+): Promise<void> {
+  const exists = await TransactionModel.exists({ _id: idTransaction, idUser }).session(
+    session ?? null
+  );
   if (!exists) throw new Error("Transaksi tidak ditemukan");
 }
 
@@ -262,6 +271,231 @@ async function removeInvestmentTransactionCore(
   await InvestmentTransactionModel.deleteOne({ _id: idInvestmentTransaction, idUser }).session(
     session
   );
+}
+
+// The four "create" operations below assume an external session — used both
+// by the public create*() methods (which start their own session) and by
+// assistant.service.ts's commit, which saves a whole Catat Cepat batch
+// (wallet transactions + their linked ledger rows) in ONE session so the
+// batch commits or rolls back together. Every live-balance read happens
+// inside the session, so cap checks see the same snapshot the $inc commits
+// against.
+export async function createMoneyInCore(
+  idUser: string,
+  input: ICreateMoneyInInput,
+  session: mongoose.ClientSession
+): Promise<ISafeInvestmentTransaction> {
+  assertFiniteAmount(input.amount, "amount");
+  if (input.amount <= 0) throw new Error("amount harus lebih besar dari 0");
+  const { account } = await findOwnedAccount(
+    idUser,
+    input.idInstrument,
+    input.idInvestmentAccount,
+    session
+  );
+  assertAccountActive(account);
+  await assertOwnedTransaction(idUser, input.idTransaction, session);
+
+  await applyAccountDelta(
+    idUser,
+    input.idInstrument,
+    input.idInvestmentAccount,
+    input.amount,
+    input.amount,
+    session
+  );
+  const [doc] = await InvestmentTransactionModel.create(
+    [
+      {
+        idUser,
+        type: "in",
+        date: new Date(input.date),
+        idInstrument: input.idInstrument,
+        idInvestmentAccount: input.idInvestmentAccount,
+        idInstrumentTo: null,
+        idInvestmentAccountTo: null,
+        amount: input.amount,
+        investedDelta: input.amount,
+        currentDelta: input.amount,
+        idTransaction: input.idTransaction,
+      },
+    ],
+    { session }
+  );
+  return toSafeInvestmentTransaction(doc);
+}
+
+export async function createMoneyOutCore(
+  idUser: string,
+  input: ICreateMoneyOutInput,
+  session: mongoose.ClientSession
+): Promise<ISafeInvestmentTransaction> {
+  assertFiniteAmount(input.amount, "amount");
+  if (input.amount <= 0) throw new Error("amount harus lebih besar dari 0");
+  if (input.idTransaction) await assertOwnedTransaction(idUser, input.idTransaction, session);
+
+  const { account } = await findOwnedAccount(
+    idUser,
+    input.idInstrument,
+    input.idInvestmentAccount,
+    session
+  );
+  assertAccountActive(account);
+  if (input.amount > account.currentValue) {
+    throw new Error("Jumlah penarikan melebihi saldo akun");
+  }
+  const { investedDelta, currentDelta } = computeOutgoingDelta(account.investedAmount, input.amount);
+
+  await applyAccountDelta(
+    idUser,
+    input.idInstrument,
+    input.idInvestmentAccount,
+    investedDelta,
+    currentDelta,
+    session
+  );
+  const [doc] = await InvestmentTransactionModel.create(
+    [
+      {
+        idUser,
+        type: "out",
+        date: new Date(input.date),
+        idInstrument: input.idInstrument,
+        idInvestmentAccount: input.idInvestmentAccount,
+        idInstrumentTo: null,
+        idInvestmentAccountTo: null,
+        amount: input.amount,
+        investedDelta,
+        currentDelta,
+        idTransaction: input.idTransaction,
+        ...(input.note && { note: input.note }),
+      },
+    ],
+    { session }
+  );
+  return toSafeInvestmentTransaction(doc);
+}
+
+export async function createTransferCore(
+  idUser: string,
+  input: ICreateTransferInput,
+  session: mongoose.ClientSession
+): Promise<ISafeInvestmentTransaction> {
+  assertFiniteAmount(input.amount, "amount");
+  if (input.amount <= 0) throw new Error("amount harus lebih besar dari 0");
+  if (input.idInvestmentAccount === input.idInvestmentAccountTo) {
+    throw new Error("Akun sumber dan tujuan transfer harus berbeda");
+  }
+
+  const { account: source } = await findOwnedAccount(
+    idUser,
+    input.idInstrument,
+    input.idInvestmentAccount,
+    session
+  );
+  assertAccountActive(source);
+  const { account: destination } = await findOwnedAccount(
+    idUser,
+    input.idInstrumentTo,
+    input.idInvestmentAccountTo,
+    session
+  );
+  assertAccountActive(destination);
+  if (input.amount > source.currentValue) {
+    throw new Error("Jumlah transfer melebihi saldo akun sumber");
+  }
+  const { investedDelta, currentDelta } = computeOutgoingDelta(source.investedAmount, input.amount);
+
+  await applyAccountDelta(
+    idUser,
+    input.idInstrument,
+    input.idInvestmentAccount,
+    investedDelta,
+    currentDelta,
+    session
+  );
+  await applyAccountDelta(
+    idUser,
+    input.idInstrumentTo,
+    input.idInvestmentAccountTo,
+    input.amount,
+    input.amount,
+    session
+  );
+  const [doc] = await InvestmentTransactionModel.create(
+    [
+      {
+        idUser,
+        type: "transfer",
+        date: new Date(input.date),
+        idInstrument: input.idInstrument,
+        idInvestmentAccount: input.idInvestmentAccount,
+        idInstrumentTo: input.idInstrumentTo,
+        idInvestmentAccountTo: input.idInvestmentAccountTo,
+        amount: input.amount,
+        investedDelta,
+        currentDelta,
+        idTransaction: null,
+      },
+    ],
+    { session }
+  );
+  return toSafeInvestmentTransaction(doc);
+}
+
+export async function createProfitLossCore(
+  idUser: string,
+  input: ICreateProfitLossInput,
+  session: mongoose.ClientSession
+): Promise<ISafeInvestmentTransaction> {
+  assertFiniteAmount(input.newCurrentValue, "newCurrentValue");
+  if (input.newCurrentValue < 0) throw new Error("Nilai saat ini tidak boleh negatif");
+
+  const { account } = await findOwnedAccount(
+    idUser,
+    input.idInstrument,
+    input.idInvestmentAccount,
+    session
+  );
+  assertAccountActive(account);
+  if (input.newCurrentValue === account.currentValue) {
+    throw new Error("Nilai saat ini tidak berubah");
+  }
+  const delta = input.newCurrentValue - account.currentValue;
+
+  await applyAccountDelta(idUser, input.idInstrument, input.idInvestmentAccount, 0, delta, session);
+  const [doc] = await InvestmentTransactionModel.create(
+    [
+      {
+        idUser,
+        type: "pl",
+        date: new Date(input.date),
+        idInstrument: input.idInstrument,
+        idInvestmentAccount: input.idInvestmentAccount,
+        idInstrumentTo: null,
+        idInvestmentAccountTo: null,
+        amount: delta,
+        investedDelta: 0,
+        currentDelta: delta,
+        idTransaction: null,
+      },
+    ],
+    { session }
+  );
+  return toSafeInvestmentTransaction(doc);
+}
+
+async function inOwnTransaction<T>(work: (session: mongoose.ClientSession) => Promise<T>): Promise<T> {
+  const session = await mongoose.startSession();
+  try {
+    let result!: T;
+    await session.withTransaction(async () => {
+      result = await work(session);
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
 }
 
 export const InvestmentTransactionService = {
@@ -459,255 +693,28 @@ export const InvestmentTransactionService = {
   },
 
   async createMoneyIn(idUser: string, input: ICreateMoneyInInput): Promise<ISafeInvestmentTransaction> {
-    assertFiniteAmount(input.amount, "amount");
-    if (input.amount <= 0) throw new Error("amount harus lebih besar dari 0");
-    const { account: moneyInAccount } = await findOwnedAccount(
-      idUser,
-      input.idInstrument,
-      input.idInvestmentAccount
-    );
-    assertAccountActive(moneyInAccount);
-    await assertOwnedTransaction(idUser, input.idTransaction);
-
-    const session = await mongoose.startSession();
-    try {
-      let created: any;
-      await session.withTransaction(async () => {
-        await applyAccountDelta(
-          idUser,
-          input.idInstrument,
-          input.idInvestmentAccount,
-          input.amount,
-          input.amount,
-          session
-        );
-        const [doc] = await InvestmentTransactionModel.create(
-          [
-            {
-              idUser,
-              type: "in",
-              date: new Date(input.date),
-              idInstrument: input.idInstrument,
-              idInvestmentAccount: input.idInvestmentAccount,
-              idInstrumentTo: null,
-              idInvestmentAccountTo: null,
-              amount: input.amount,
-              investedDelta: input.amount,
-              currentDelta: input.amount,
-              idTransaction: input.idTransaction,
-            },
-          ],
-          { session }
-        );
-        created = doc;
-      });
-      return toSafeInvestmentTransaction(created);
-    } finally {
-      await session.endSession();
-    }
+    return inOwnTransaction((session) => createMoneyInCore(idUser, input, session));
   },
 
   async createMoneyOut(
     idUser: string,
     input: ICreateMoneyOutInput
   ): Promise<ISafeInvestmentTransaction> {
-    assertFiniteAmount(input.amount, "amount");
-    if (input.amount <= 0) throw new Error("amount harus lebih besar dari 0");
-    if (input.idTransaction) await assertOwnedTransaction(idUser, input.idTransaction);
-
-    const session = await mongoose.startSession();
-    try {
-      let created: any;
-      await session.withTransaction(async () => {
-        // Read the live balance INSIDE the session (not before starting it)
-        // so the cap-check and delta computation see the same snapshot the
-        // $inc below commits against — avoids a time-of-check/time-of-use
-        // gap against a concurrent mutation.
-        const { account } = await findOwnedAccount(
-          idUser,
-          input.idInstrument,
-          input.idInvestmentAccount,
-          session
-        );
-        assertAccountActive(account);
-        if (input.amount > account.currentValue) {
-          throw new Error("Jumlah penarikan melebihi saldo akun");
-        }
-        const { investedDelta, currentDelta } = computeOutgoingDelta(
-          account.investedAmount,
-          input.amount
-        );
-
-        await applyAccountDelta(
-          idUser,
-          input.idInstrument,
-          input.idInvestmentAccount,
-          investedDelta,
-          currentDelta,
-          session
-        );
-        const [doc] = await InvestmentTransactionModel.create(
-          [
-            {
-              idUser,
-              type: "out",
-              date: new Date(input.date),
-              idInstrument: input.idInstrument,
-              idInvestmentAccount: input.idInvestmentAccount,
-              idInstrumentTo: null,
-              idInvestmentAccountTo: null,
-              amount: input.amount,
-              investedDelta,
-              currentDelta,
-              idTransaction: input.idTransaction,
-              ...(input.note && { note: input.note }),
-            },
-          ],
-          { session }
-        );
-        created = doc;
-      });
-      return toSafeInvestmentTransaction(created);
-    } finally {
-      await session.endSession();
-    }
+    return inOwnTransaction((session) => createMoneyOutCore(idUser, input, session));
   },
 
   async createTransfer(
     idUser: string,
     input: ICreateTransferInput
   ): Promise<ISafeInvestmentTransaction> {
-    assertFiniteAmount(input.amount, "amount");
-    if (input.amount <= 0) throw new Error("amount harus lebih besar dari 0");
-    if (input.idInvestmentAccount === input.idInvestmentAccountTo) {
-      throw new Error("Akun sumber dan tujuan transfer harus berbeda");
-    }
-
-    const session = await mongoose.startSession();
-    try {
-      let created: any;
-      await session.withTransaction(async () => {
-        // Same "read the live snapshot inside the session" reasoning as
-        // createMoneyOut.
-        const { account: source } = await findOwnedAccount(
-          idUser,
-          input.idInstrument,
-          input.idInvestmentAccount,
-          session
-        );
-        assertAccountActive(source);
-        const { account: destination } = await findOwnedAccount(
-          idUser,
-          input.idInstrumentTo,
-          input.idInvestmentAccountTo,
-          session
-        );
-        assertAccountActive(destination);
-        if (input.amount > source.currentValue) {
-          throw new Error("Jumlah transfer melebihi saldo akun sumber");
-        }
-        const { investedDelta, currentDelta } = computeOutgoingDelta(
-          source.investedAmount,
-          input.amount
-        );
-
-        await applyAccountDelta(
-          idUser,
-          input.idInstrument,
-          input.idInvestmentAccount,
-          investedDelta,
-          currentDelta,
-          session
-        );
-        await applyAccountDelta(
-          idUser,
-          input.idInstrumentTo,
-          input.idInvestmentAccountTo,
-          input.amount,
-          input.amount,
-          session
-        );
-        const [doc] = await InvestmentTransactionModel.create(
-          [
-            {
-              idUser,
-              type: "transfer",
-              date: new Date(input.date),
-              idInstrument: input.idInstrument,
-              idInvestmentAccount: input.idInvestmentAccount,
-              idInstrumentTo: input.idInstrumentTo,
-              idInvestmentAccountTo: input.idInvestmentAccountTo,
-              amount: input.amount,
-              investedDelta,
-              currentDelta,
-              idTransaction: null,
-            },
-          ],
-          { session }
-        );
-        created = doc;
-      });
-      return toSafeInvestmentTransaction(created);
-    } finally {
-      await session.endSession();
-    }
+    return inOwnTransaction((session) => createTransferCore(idUser, input, session));
   },
 
   async createProfitLoss(
     idUser: string,
     input: ICreateProfitLossInput
   ): Promise<ISafeInvestmentTransaction> {
-    assertFiniteAmount(input.newCurrentValue, "newCurrentValue");
-    if (input.newCurrentValue < 0) throw new Error("Nilai saat ini tidak boleh negatif");
-
-    const session = await mongoose.startSession();
-    try {
-      let created: any;
-      await session.withTransaction(async () => {
-        const { account } = await findOwnedAccount(
-          idUser,
-          input.idInstrument,
-          input.idInvestmentAccount,
-          session
-        );
-        assertAccountActive(account);
-        if (input.newCurrentValue === account.currentValue) {
-          throw new Error("Nilai saat ini tidak berubah");
-        }
-        const delta = input.newCurrentValue - account.currentValue;
-
-        await applyAccountDelta(
-          idUser,
-          input.idInstrument,
-          input.idInvestmentAccount,
-          0,
-          delta,
-          session
-        );
-        const [doc] = await InvestmentTransactionModel.create(
-          [
-            {
-              idUser,
-              type: "pl",
-              date: new Date(input.date),
-              idInstrument: input.idInstrument,
-              idInvestmentAccount: input.idInvestmentAccount,
-              idInstrumentTo: null,
-              idInvestmentAccountTo: null,
-              amount: delta,
-              investedDelta: 0,
-              currentDelta: delta,
-              idTransaction: null,
-            },
-          ],
-          { session }
-        );
-        created = doc;
-      });
-      return toSafeInvestmentTransaction(created);
-    } finally {
-      await session.endSession();
-    }
+    return inOwnTransaction((session) => createProfitLossCore(idUser, input, session));
   },
 
   // Edits amount/date only. Computes the NET delta between the old and new

@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import morgan from "morgan";
 import accountRoutes from "./routes/account.routes";
+import assistantRoutes from "./routes/assistant.routes";
 import authRoutes from "./routes/auth.routes";
 import budgetRoutes from "./routes/budget.routes";
 import categoryRoutes from "./routes/category.routes";
@@ -57,6 +58,7 @@ app.use("/api/instruments", instrumentRoutes);
 app.use("/api/investment-transactions", investmentTransactionRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/errors", clientErrorRoutes);
+app.use("/api/assistant", assistantRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "✅ API is running." });
