@@ -163,6 +163,72 @@ function computeOutgoingDelta(
   return { investedDelta: -Math.min(amount, investedAmount), currentDelta: -amount };
 }
 
+// Replays one account's ledger to answer two questions about a (possibly
+// backdated) new entry at `date`: what the account held right at that moment
+// (`atDate` — entries on or before it), and the lowest running totals from
+// that moment onward (`minFromDate`, `atDate` included). A new entry's delta
+// shifts every later point by the same amount, so `minFromDate` is what caps
+// it — otherwise a backdated withdrawal could drive some later point (and the
+// live balance) negative. For an entry dated "now" both collapse to the live
+// totals, matching the pre-backdating behavior.
+async function getAccountStateAt(
+  idUser: string,
+  idInvestmentAccount: string,
+  date: Date,
+  session: mongoose.ClientSession
+): Promise<{
+  atDate: { invested: number; current: number };
+  minFromDate: { invested: number; current: number };
+}> {
+  const entries = await InvestmentTransactionModel.find({
+    idUser,
+    $or: [{ idInvestmentAccount }, { idInvestmentAccountTo: idInvestmentAccount }],
+  })
+    .sort({ date: 1, _id: 1 })
+    .select("idInvestmentAccount idInvestmentAccountTo investedDelta currentDelta amount date")
+    .session(session)
+    .lean();
+
+  let invested = 0;
+  let current = 0;
+  let cursor = 0;
+  for (; cursor < entries.length && entries[cursor].date.getTime() <= date.getTime(); cursor += 1) {
+    const entry = entries[cursor];
+    if (entry.idInvestmentAccount === idInvestmentAccount) {
+      invested += entry.investedDelta ?? 0;
+      current += entry.currentDelta ?? 0;
+    }
+    if (entry.idInvestmentAccountTo === idInvestmentAccount) {
+      invested += entry.amount ?? 0;
+      current += entry.amount ?? 0;
+    }
+  }
+
+  const atDate = { invested, current };
+  const minFromDate = { invested, current };
+  for (; cursor < entries.length; cursor += 1) {
+    const entry = entries[cursor];
+    if (entry.idInvestmentAccount === idInvestmentAccount) {
+      invested += entry.investedDelta ?? 0;
+      current += entry.currentDelta ?? 0;
+    }
+    if (entry.idInvestmentAccountTo === idInvestmentAccount) {
+      invested += entry.amount ?? 0;
+      current += entry.amount ?? 0;
+    }
+    minFromDate.invested = Math.min(minFromDate.invested, invested);
+    minFromDate.current = Math.min(minFromDate.current, current);
+  }
+
+  return { atDate, minFromDate };
+}
+
+function parseEntryDate(value: string): Date {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error("date tidak valid");
+  return date;
+}
+
 async function applyAccountDelta(
   idUser: string,
   idInstrument: string,
@@ -341,10 +407,23 @@ export async function createMoneyOutCore(
     session
   );
   assertAccountActive(account);
-  if (input.amount > account.currentValue) {
+  const date = parseEntryDate(input.date);
+  // Capped by the lowest value from the chosen date onward, not just the live
+  // value — a backdated withdrawal also lowers every point after it. Invested
+  // is floored the same way so no later point (nor the live total) goes negative.
+  const { minFromDate } = await getAccountStateAt(
+    idUser,
+    input.idInvestmentAccount,
+    date,
+    session
+  );
+  if (input.amount > Math.min(minFromDate.current, account.currentValue)) {
     throw new Error("Jumlah penarikan melebihi saldo akun");
   }
-  const { investedDelta, currentDelta } = computeOutgoingDelta(account.investedAmount, input.amount);
+  const { investedDelta, currentDelta } = computeOutgoingDelta(
+    Math.max(0, Math.min(minFromDate.invested, account.investedAmount)),
+    input.amount
+  );
 
   await applyAccountDelta(
     idUser,
@@ -359,7 +438,7 @@ export async function createMoneyOutCore(
       {
         idUser,
         type: "out",
-        date: new Date(input.date),
+        date,
         idInstrument: input.idInstrument,
         idInvestmentAccount: input.idInvestmentAccount,
         idInstrumentTo: null,
@@ -401,10 +480,22 @@ export async function createTransferCore(
     session
   );
   assertAccountActive(destination);
-  if (input.amount > source.currentValue) {
+  const date = parseEntryDate(input.date);
+  // Same backdating cap as a withdrawal, on the source side only — the
+  // destination just gains, which can't push any of its points negative.
+  const { minFromDate } = await getAccountStateAt(
+    idUser,
+    input.idInvestmentAccount,
+    date,
+    session
+  );
+  if (input.amount > Math.min(minFromDate.current, source.currentValue)) {
     throw new Error("Jumlah transfer melebihi saldo akun sumber");
   }
-  const { investedDelta, currentDelta } = computeOutgoingDelta(source.investedAmount, input.amount);
+  const { investedDelta, currentDelta } = computeOutgoingDelta(
+    Math.max(0, Math.min(minFromDate.invested, source.investedAmount)),
+    input.amount
+  );
 
   await applyAccountDelta(
     idUser,
@@ -427,7 +518,7 @@ export async function createTransferCore(
       {
         idUser,
         type: "transfer",
-        date: new Date(input.date),
+        date,
         idInstrument: input.idInstrument,
         idInvestmentAccount: input.idInvestmentAccount,
         idInstrumentTo: input.idInstrumentTo,
@@ -458,10 +549,23 @@ export async function createProfitLossCore(
     session
   );
   assertAccountActive(account);
-  if (input.newCurrentValue === account.currentValue) {
+  const date = parseEntryDate(input.date);
+  // newCurrentValue is the value AS OF the chosen date, so the delta is taken
+  // against the ledger replayed up to that date — for "now" that equals the
+  // live value. Later entries keep their own deltas and shift along with it.
+  const { atDate, minFromDate } = await getAccountStateAt(
+    idUser,
+    input.idInvestmentAccount,
+    date,
+    session
+  );
+  const delta = input.newCurrentValue - atDate.current;
+  if (Math.abs(delta) < 1e-9) {
     throw new Error("Nilai saat ini tidak berubah");
   }
-  const delta = input.newCurrentValue - account.currentValue;
+  if (minFromDate.current + delta < 0 || account.currentValue + delta < 0) {
+    throw new Error("Nilai ini membuat saldo akun setelah tanggal tersebut menjadi negatif");
+  }
 
   await applyAccountDelta(idUser, input.idInstrument, input.idInvestmentAccount, 0, delta, session);
   const [doc] = await InvestmentTransactionModel.create(
@@ -469,7 +573,7 @@ export async function createProfitLossCore(
       {
         idUser,
         type: "pl",
-        date: new Date(input.date),
+        date,
         idInstrument: input.idInstrument,
         idInvestmentAccount: input.idInvestmentAccount,
         idInstrumentTo: null,
