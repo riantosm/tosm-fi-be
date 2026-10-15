@@ -230,6 +230,13 @@ DATES
 - When a new transaction has NO time reference at all and the conversation hasn't settled it: leave date "" and ask="date" with a reply like "Apakah transaksi ini hari ini?". correction and investmentPl describe "now", so they are today.
 - A message like "2026-10-03 14:30" (from the date picker) answers the date question.
 
+RECEIPT PHOTOS
+- When the last user message has a photo, it is usually a shopping receipt (struk / nota / invoice). Read it and make ONE expense draft per receipt, not one per item.
+- amount = the total actually paid (after discounts, tax and service charge). title = the store or merchant name ("Indomaret", "Kopi Kenangan"). notes = up to 5 main items, comma separated.
+- date / time = the transaction date and time printed on the receipt; leave date "" if none is printed.
+- wallet = the payment method on the receipt when it clearly matches a user wallet (GoPay, OVO, BCA debit, …), otherwise the primary wallet. Pick the closest expense category.
+- A photo that is not a receipt, or too blurry to read the total: intent unknown, say so in one short sentence and ask for a clearer photo.
+
 INTENTS
 - preview: every draft is complete. reply = a short intro ("Ini yang aku catat, cek dulu ya:"). Return ALL pending drafts plus any new ones.
 - ask: something required is missing. Ask exactly one short question, set \`ask\`, and still return every draft with what you know so far (unknown fields empty).

@@ -27,6 +27,7 @@ import {
   IAssistantCommitResult,
   IAssistantDraft,
   IAssistantHistoryItem,
+  IAssistantImage,
   IAssistantQuickReply,
   IAssistantReply,
 } from "../interfaces/assistant.interface";
@@ -715,9 +716,11 @@ function mentionsTime(text: string): boolean {
 function enforceDateRule(
   drafts: IAssistantDraft[],
   pending: IAssistantDraft[],
-  lastUserText: string
+  lastUserText: string,
+  // A receipt photo carries its own date: a date the model read from it counts as given.
+  imageGiven = false
 ) {
-  const timeGiven = mentionsTime(lastUserText);
+  const timeGiven = imageGiven || mentionsTime(lastUserText);
   const answeredToday = YES_TODAY_RE.test(lastUserText.trim());
   const conversationHasDate = pending.some(
     (p) => !hasTarget(p.kind) && !p.missing?.includes("date")
@@ -771,7 +774,7 @@ function interpret(
   }
 
   const drafts = (output.drafts ?? []).map((draft) => fromModelDraft(draft, ctx, pendingByRef));
-  enforceDateRule(drafts, pending, lastUserText);
+  enforceDateRule(drafts, pending, lastUserText, Boolean(input.image));
 
   if (output.intent === "unknown" || drafts.length === 0) {
     return {
@@ -1019,6 +1022,21 @@ export function sanitizeLanguage(value: unknown): AssistantLanguage {
   return value === "en" || value === "jp" ? value : "id";
 }
 
+const IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+// Base64 characters; ~3 MB of image. The app resizes receipts to ~1280px JPEG (~300 KB) first.
+const MAX_IMAGE_BASE64 = 4_000_000;
+
+export function sanitizeImage(value: unknown): IAssistantImage | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { mimeType, data } = value as { mimeType?: unknown; data?: unknown };
+  if (!IMAGE_MIME_TYPES.includes(mimeType as IAssistantImage["mimeType"])) return undefined;
+  if (typeof data !== "string" || data.length === 0 || data.length > MAX_IMAGE_BASE64) {
+    return undefined;
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return undefined;
+  return { mimeType: mimeType as IAssistantImage["mimeType"], data };
+}
+
 export function sanitizeHistory(value: unknown): IAssistantHistoryItem[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -1094,9 +1112,20 @@ export const AssistantService = {
       accounts: ctx.accounts,
       pending: [...pendingByRef].map(([ref, draft]) => toModelDraft(draft, ref, ctx)),
     });
+    const lastIndex = input.history.length - 1;
     const messages: LlmMessage[] = [
       { role: "system", content: system },
-      ...input.history.map((item) => ({ role: item.role, content: item.text })),
+      ...input.history.map((item, index): LlmMessage => {
+        if (index !== lastIndex || !input.image) return { role: item.role, content: item.text };
+        const { mimeType, data } = input.image;
+        return {
+          role: item.role,
+          content: [
+            { type: "text", text: item.text },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${data}` } },
+          ],
+        };
+      }),
     ];
 
     const output = await completeJson<ModelOutput>({

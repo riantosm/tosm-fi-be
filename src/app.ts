@@ -21,7 +21,8 @@ const app = express();
 const ALLOWED_ORIGINS = ["http://localhost:5173", "https://tosm-fi.netlify.app"];
 
 app.use(cors({ origin: true }));
-app.use(express.json());
+// Catat Cepat may attach a resized receipt photo (base64) to /assistant/chat.
+app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 

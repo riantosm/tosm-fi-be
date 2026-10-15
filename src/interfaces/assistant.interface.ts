@@ -76,8 +76,16 @@ export interface IAssistantHistoryItem {
   text: string;
 }
 
+/** A photo (e.g. a receipt) attached to the last user message, base64 without a data: prefix. */
+export interface IAssistantImage {
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  data: string;
+}
+
 export interface IAssistantChatInput {
   history: IAssistantHistoryItem[];
+  /** Only sent with the message it belongs to; the conversation itself stays text-only. */
+  image?: IAssistantImage;
   /** Drafts currently pending (asked about or previewed), as last returned. */
   drafts: IAssistantDraft[];
   /** Client's `Date.getTimezoneOffset()` value — see src/utils/timezone.ts. */

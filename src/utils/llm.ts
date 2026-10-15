@@ -23,9 +23,14 @@ export class LlmError extends Error {
   }
 }
 
+/** OpenAI-style multimodal part; Gemini's compatibility layer accepts base64 data URLs. */
+export type LlmContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface LlmMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | LlmContentPart[];
 }
 
 interface JsonCompletionRequest {

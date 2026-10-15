@@ -4,6 +4,7 @@ import {
   AssistantService,
   sanitizeDrafts,
   sanitizeHistory,
+  sanitizeImage,
   sanitizeLanguage,
 } from "../services/assistant.service";
 import { LlmError } from "../utils/llm";
@@ -27,7 +28,7 @@ function llmErrorResponse(error: LlmError): { status: number; message: string } 
 export const AssistantController = {
   async chat(req: AuthRequest, res: Response) {
     try {
-      const { history, drafts, tzOffsetMinutes, language, hasPreview } = req.body ?? {};
+      const { history, drafts, tzOffsetMinutes, language, hasPreview, image } = req.body ?? {};
       const cleanHistory = sanitizeHistory(history);
       if (cleanHistory.length === 0 || cleanHistory[cleanHistory.length - 1].role !== "user") {
         return responseHandler(res, {
@@ -43,6 +44,7 @@ export const AssistantController = {
         tzOffsetMinutes: parseTzOffsetMinutes(tzOffsetMinutes),
         language: sanitizeLanguage(language),
         hasPreview: hasPreview === true,
+        image: sanitizeImage(image),
       });
 
       return responseHandler(res, { message: "Berhasil memproses pesan", data: reply });
