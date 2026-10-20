@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C8CBFD"/><stop offset="0.45" stop-color="#9297F7"/><stop offset="1" stop-color="#5F62D6"/></linearGradient>
+  <radialGradient id="sheen" cx="0.18" cy="0.12" r="0.75"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+  <filter id="drop" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#3A3DA6" flood-opacity="0.35"/></filter>
+  <linearGradient id="mb" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#EEEFFE"/><stop offset="1" stop-color="#C9CCF8"/></linearGradient>
+  <linearGradient id="mf" x1="0.2" y1="0" x2="0.5" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#DCDEFB"/></linearGradient>
+  <linearGradient id="mp" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFE6BA"/><stop offset="1" stop-color="#F5BC72"/></linearGradient>
+  <linearGradient id="ml" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FBFBFF"/><stop offset="1" stop-color="#CDD0F7"/></linearGradient>
+  <clipPath id="mc"><path d="M345 345H909A78 78 0 0 1 909 501H809A144 144 0 0 0 665 645V891A71 71 0 0 1 523 891V571A70 70 0 0 0 453 501H345A78 78 0 0 1 345 345Z"/></clipPath>
+  <filter id="ms" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="16"/></filter></defs>
+<rect x="24" y="24" width="976" height="976" rx="236" fill="url(#bg)"/>
+<rect x="24" y="24" width="976" height="976" rx="236" fill="url(#sheen)"/>
+<g filter="url(#drop)" transform="translate(512 512) scale(0.9386666666666668) translate(-627 -653.5)">
+  <g clip-path="url(#mc)">
+    <path d="M345 345H909A78 78 0 0 1 909 501H809A144 144 0 0 0 665 645V891A71 71 0 0 1 523 891V571A70 70 0 0 0 453 501H345A78 78 0 0 1 345 345Z" fill="url(#mb)"/>
+    <path d="M523 615C523 470 620 352 775 345H1000V1000H500Z" fill="#3B3EA8" opacity="0.28" filter="url(#ms)" transform="translate(-16 8)"/>
+    <path d="M523 615C523 470 620 352 775 345H1000V1000H500Z" fill="url(#mf)"/>
+  </g>
+  <path d="M809 529H977A10 10 0 0 1 987 539A145 145 0 0 1 842 684H793A128 128 0 0 0 693 732V645A116 116 0 0 1 809 529Z" fill="url(#mp)"/>
+  <path d="M793 712H910A10 10 0 0 1 920 722V735A125 125 0 0 1 795 860A128 128 0 0 0 693 911V812A100 100 0 0 1 793 712Z" fill="url(#ml)"/></g>
+</svg>
