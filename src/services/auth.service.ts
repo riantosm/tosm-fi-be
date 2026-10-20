@@ -5,6 +5,7 @@ import {
   ISafeUser,
 } from "../interfaces/user.interface";
 import { UserModel } from "../models/user.model";
+import { isDemoUsername } from "../utils/demo";
 import { signToken } from "../utils/jwt";
 
 const toSafeUser = (user: any): ISafeUser => ({
@@ -14,6 +15,7 @@ const toSafeUser = (user: any): ISafeUser => ({
   role: user.role,
   status: user.status,
   createdAt: user.createdAt,
+  isDemo: isDemoUsername(user.username),
 });
 
 export const AuthService = {
