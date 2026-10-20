@@ -33,6 +33,8 @@ export interface ISafeUser {
   role: UserRole;
   status: UserStatus;
   createdAt: Date;
+  // Shared demo account (see utils/demo.ts): blocked from destructive actions.
+  isDemo: boolean;
 }
 
 export interface IUpdateProfileInput {

@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import { IChangePasswordInput, ISafeUser, IUpdateProfileInput } from "../interfaces/user.interface";
 import { UserModel } from "../models/user.model";
+import { isDemoUsername } from "../utils/demo";
 
 const toSafeUser = (user: any): ISafeUser => ({
   idUser: user._id.toString(),
@@ -9,6 +10,7 @@ const toSafeUser = (user: any): ISafeUser => ({
   role: user.role,
   status: user.status,
   createdAt: user.createdAt,
+  isDemo: isDemoUsername(user.username),
 });
 
 export const UserService = {
@@ -37,6 +39,7 @@ export const UserService = {
     if (!user) throw new Error("User tidak ditemukan");
 
     if (username !== user.username) {
+      if (isDemoUsername(user.username)) throw new Error("Username akun demo tidak bisa diubah");
       const existing = await UserModel.findOne({ username, _id: { $ne: idUser } });
       if (existing) throw new Error("Username sudah digunakan");
     }

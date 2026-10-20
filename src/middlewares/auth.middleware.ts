@@ -3,6 +3,7 @@ import { UserModel } from "../models/user.model";
 import { IJwtPayload, verifyToken } from "../utils/jwt";
 import { responseHandler } from "../utils/responseHandler";
 import { ISafeUser } from "../interfaces/user.interface";
+import { isDemoUsername } from "../utils/demo";
 
 export interface AuthRequest extends Request {
   user?: IJwtPayload;
@@ -85,6 +86,7 @@ export const requireActiveUser = async (
       role: user.role,
       status: user.status,
       createdAt: user.createdAt!,
+      isDemo: isDemoUsername(user.username),
     };
     next();
   } catch (error) {

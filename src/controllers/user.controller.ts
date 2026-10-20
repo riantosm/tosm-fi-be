@@ -88,6 +88,15 @@ export const UserController = {
   },
 
   async changePassword(req: AuthRequest, res: Response) {
+    // A shared demo account must stay usable for everyone, so nobody can lock it.
+    if (req.currentUser!.isDemo) {
+      return responseHandler(res, {
+        message: "Password akun demo tidak bisa diubah",
+        isSuccess: false,
+        status: 403,
+      });
+    }
+
     try {
       const { currentPassword, newPassword } = req.body;
 
