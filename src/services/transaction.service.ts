@@ -81,6 +81,14 @@ export function buildDateFilter(query: ITransactionListQuery): { $gte: Date; $lt
   };
 }
 
+// `idWallet`/`idCategory`/`idSubCategory` accept one id or a comma-separated list (plus a
+// repeated query param, which Express parses as an array).
+function parseIdList(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  const raw = Array.isArray(value) ? value : [value];
+  return [...new Set(raw.flatMap((item) => item.split(",")).map((id) => id.trim()).filter(Boolean))];
+}
+
 function buildFilter(idUser: string, query: ITransactionListQuery): Record<string, any> {
   const filter: Record<string, any> = { idUser };
   const andConditions: Record<string, any>[] = [];
@@ -90,17 +98,43 @@ function buildFilter(idUser: string, query: ITransactionListQuery): Record<strin
 
   if (query.type) filter.type = query.type;
 
-  if (query.idWallet) {
+  // A transfer counts as "in" a wallet when either leg touches it, so excluding
+  // a wallet also hides transfers to/from it.
+  const walletIds = parseIdList(query.idWallet);
+  if (walletIds.length > 0) {
+    andConditions.push(
+      query.walletMode === "exclude"
+        ? {
+            idWallet: { $nin: walletIds },
+            idWalletFrom: { $nin: walletIds },
+            idWalletTo: { $nin: walletIds },
+          }
+        : {
+            $or: [
+              { idWallet: { $in: walletIds } },
+              { idWalletFrom: { $in: walletIds } },
+              { idWalletTo: { $in: walletIds } },
+            ],
+          },
+    );
+  }
+  // In $and rather than on `filter.idCategory` — computeSummary spreads the
+  // filter and sets its own `idCategory: { $ne: null }`, which would clobber it.
+  // Excluding keeps category-less rows (transfer/correction): $nin matches null.
+  const categoryIds = parseIdList(query.idCategory);
+  if (categoryIds.length > 0) {
     andConditions.push({
-      $or: [
-        { idWallet: query.idWallet },
-        { idWalletFrom: query.idWallet },
-        { idWalletTo: query.idWallet },
-      ],
+      idCategory: query.categoryMode === "exclude" ? { $nin: categoryIds } : { $in: categoryIds },
     });
   }
-  if (query.idCategory) filter.idCategory = query.idCategory;
-  if (query.idSubCategory) filter.idSubCategory = query.idSubCategory;
+  // Excluding keeps rows with no subcategory, same as categories.
+  const subCategoryIds = parseIdList(query.idSubCategory);
+  if (subCategoryIds.length > 0) {
+    andConditions.push({
+      idSubCategory:
+        query.subCategoryMode === "exclude" ? { $nin: subCategoryIds } : { $in: subCategoryIds },
+    });
+  }
 
   if (query.search?.trim()) {
     const pattern = new RegExp(escapeRegExp(query.search.trim()), "i");

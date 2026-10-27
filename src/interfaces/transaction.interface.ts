@@ -45,13 +45,24 @@ export interface ISafeTransaction {
 
 export type TransactionSortOption = "dateDesc" | "dateAsc" | "amountDesc" | "amountAsc";
 
+export type TransactionFilterMode = "include" | "exclude";
+
 export interface ITransactionListQuery {
   /** "YYYY-MM" */
   month?: string;
   type?: TransactionType;
-  idWallet?: string;
-  idCategory?: string;
-  idSubCategory?: string;
+  /** One id or a comma-separated list. */
+  idWallet?: string | string[];
+  /** Whether `idWallet` keeps (default) or hides matching transactions. */
+  walletMode?: TransactionFilterMode;
+  /** One id or a comma-separated list. */
+  idCategory?: string | string[];
+  /** Whether `idCategory` keeps (default) or hides matching transactions. */
+  categoryMode?: TransactionFilterMode;
+  /** One id or a comma-separated list. */
+  idSubCategory?: string | string[];
+  /** Whether `idSubCategory` keeps (default) or hides matching transactions. */
+  subCategoryMode?: TransactionFilterMode;
   /** "YYYY-MM-DD" */
   dateFrom?: string;
   /** "YYYY-MM-DD" */
