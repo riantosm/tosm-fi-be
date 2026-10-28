@@ -9,6 +9,7 @@ import categoryRoutes from "./routes/category.routes";
 import clientErrorRoutes from "./routes/client-error.routes";
 import instrumentRoutes from "./routes/instrument.routes";
 import investmentTransactionRoutes from "./routes/investment-transaction.routes";
+import paymentRoutes from "./routes/payment.routes";
 import reportRoutes from "./routes/report.routes";
 import scheduleRoutes from "./routes/schedule.routes";
 import transactionRoutes from "./routes/transaction.routes";
@@ -60,6 +61,7 @@ app.use("/api/investment-transactions", investmentTransactionRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/errors", clientErrorRoutes);
 app.use("/api/assistant", assistantRoutes);
+app.use("/api/payments", paymentRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "✅ API is running." });

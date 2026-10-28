@@ -1090,7 +1090,12 @@ export function sanitizeDrafts(value: unknown): IAssistantDraft[] {
 // ---------------------------------------------------------------------------
 
 export const AssistantService = {
-  async chat(idUser: string, input: IAssistantChatInput): Promise<IAssistantReply> {
+  /** `beforeLlm` runs right before the model is called (not for replies answered without it). */
+  async chat(
+    idUser: string,
+    input: IAssistantChatInput,
+    beforeLlm?: () => Promise<void>
+  ): Promise<IAssistantReply> {
     const ctx = await loadContext(idUser, input.language, input.tzOffsetMinutes);
     const pending = input.drafts;
     const lastUserText = [...input.history].reverse().find((item) => item.role === "user")?.text ?? "";
@@ -1128,6 +1133,7 @@ export const AssistantService = {
       }),
     ];
 
+    await beforeLlm?.();
     const output = await completeJson<ModelOutput>({
       messages,
       schemaName: "catat_cepat",

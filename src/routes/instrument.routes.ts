@@ -1,11 +1,12 @@
 import express from "express";
 import { InstrumentController } from "../controllers/instrument.controller";
 import { requireActiveUser, requireAuth } from "../middlewares/auth.middleware";
+import { requirePlanQuota } from "../middlewares/plan.middleware";
 
 const router = express.Router();
 
 router.get("/", requireAuth, requireActiveUser, InstrumentController.list);
-router.post("/", requireAuth, requireActiveUser, InstrumentController.create);
+router.post("/", requireAuth, requireActiveUser, requirePlanQuota("instruments"), InstrumentController.create);
 
 router.post(
   "/:idInstrument/accounts",

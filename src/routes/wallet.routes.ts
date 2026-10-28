@@ -1,11 +1,12 @@
 import express from "express";
 import { WalletController } from "../controllers/wallet.controller";
 import { requireActiveUser, requireAuth } from "../middlewares/auth.middleware";
+import { requirePlanQuota } from "../middlewares/plan.middleware";
 
 const router = express.Router();
 
 router.get("/", requireAuth, requireActiveUser, WalletController.list);
-router.post("/", requireAuth, requireActiveUser, WalletController.create);
+router.post("/", requireAuth, requireActiveUser, requirePlanQuota("wallets"), WalletController.create);
 // Registered before "/:idWallet" so "reorder" isn't matched as an idWallet param.
 router.patch("/reorder", requireAuth, requireActiveUser, WalletController.reorder);
 router.patch("/:idWallet/primary", requireAuth, requireActiveUser, WalletController.setPrimary);

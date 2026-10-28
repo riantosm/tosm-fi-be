@@ -3,7 +3,7 @@ import { UserModel } from "../models/user.model";
 import { IJwtPayload, verifyToken } from "../utils/jwt";
 import { responseHandler } from "../utils/responseHandler";
 import { ISafeUser } from "../interfaces/user.interface";
-import { isDemoUsername } from "../utils/demo";
+import { toSafeUser } from "../utils/plan";
 
 export interface AuthRequest extends Request {
   user?: IJwtPayload;
@@ -41,7 +41,7 @@ export const requireAuth = (
 };
 
 // Loads the user fresh from the DB (instead of trusting the JWT payload) so
-// an admin's accept-user action — and a logout — takes effect immediately,
+// an admin's plan change — and a logout — takes effect immediately,
 // without the token itself needing to expire or be re-issued.
 export const requireActiveUser = async (
   req: AuthRequest,
@@ -71,23 +71,14 @@ export const requireActiveUser = async (
       });
     }
 
+    // Approval is no longer required: an account still marked pending from
+    // the old flow is activated on its first request.
     if (user.status !== "active") {
-      return responseHandler(res, {
-        message: "Menunggu validasi",
-        isSuccess: false,
-        status: 403,
-      });
+      await UserModel.updateOne({ _id: user._id }, { status: "active" });
+      user.status = "active";
     }
 
-    req.currentUser = {
-      idUser: user._id.toString(),
-      nameUser: user.nameUser,
-      username: user.username,
-      role: user.role,
-      status: user.status,
-      createdAt: user.createdAt!,
-      isDemo: isDemoUsername(user.username),
-    };
+    req.currentUser = toSafeUser(user);
     next();
   } catch (error) {
     return responseHandler(res, {

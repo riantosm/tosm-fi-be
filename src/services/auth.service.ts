@@ -5,26 +5,16 @@ import {
   ISafeUser,
 } from "../interfaces/user.interface";
 import { UserModel } from "../models/user.model";
-import { isDemoUsername } from "../utils/demo";
 import { signToken } from "../utils/jwt";
-
-const toSafeUser = (user: any): ISafeUser => ({
-  idUser: user._id.toString(),
-  nameUser: user.nameUser,
-  username: user.username,
-  role: user.role,
-  status: user.status,
-  createdAt: user.createdAt,
-  isDemo: isDemoUsername(user.username),
-});
+import { toSafeUser } from "../utils/plan";
 
 export const AuthService = {
   async register(data: IRegisterInput): Promise<ISafeUser> {
     const existing = await UserModel.findOne({ username: data.username });
     if (existing) throw new Error("Username sudah terdaftar");
 
-    // Bootstrap: the very first account becomes an active admin so there is
-    // always someone able to approve everyone who registers afterward.
+    // Bootstrap: the very first account becomes the admin, who can later
+    // give other accounts Pro. Every account is active right away.
     const isFirstUser = (await UserModel.countDocuments()) === 0;
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
@@ -33,7 +23,8 @@ export const AuthService = {
       username: data.username,
       password: hashedPassword,
       role: isFirstUser ? "admin" : "user",
-      status: isFirstUser ? "active" : "pending",
+      status: "active",
+      plan: "free",
     });
 
     return toSafeUser(user);
@@ -46,8 +37,13 @@ export const AuthService = {
     const isValid = await bcrypt.compare(data.password, user.password);
     if (!isValid) throw new Error("Username atau password salah");
 
-    // Login succeeds even while pending — /user/me and other protected
-    // routes are what actually block a not-yet-approved user.
+    // Accounts registered while approval was still required are activated
+    // on their next login.
+    if (user.status !== "active") {
+      user.status = "active";
+      await user.save();
+    }
+
     const token = signToken({ idUser: user._id.toString(), role: user.role });
 
     return { token, user: toSafeUser(user) };
