@@ -7,7 +7,9 @@ import {
   sanitizeImage,
   sanitizeLanguage,
 } from "../services/assistant.service";
+import { UserService } from "../services/user.service";
 import { LlmError } from "../utils/llm";
+import { PLAN_LIMITS, PlanLimitError, planLimitResponse } from "../utils/plan";
 import { responseHandler } from "../utils/responseHandler";
 import { parseTzOffsetMinutes } from "../utils/timezone";
 
@@ -27,6 +29,9 @@ function llmErrorResponse(error: LlmError): { status: number; message: string } 
 
 export const AssistantController = {
   async chat(req: AuthRequest, res: Response) {
+    const currentUser = req.currentUser!;
+    let consumed = false;
+    let tz = 0;
     try {
       const { history, drafts, tzOffsetMinutes, language, hasPreview, image } = req.body ?? {};
       const cleanHistory = sanitizeHistory(history);
@@ -38,17 +43,32 @@ export const AssistantController = {
         });
       }
 
-      const reply = await AssistantService.chat(req.currentUser!.idUser, {
-        history: cleanHistory,
-        drafts: sanitizeDrafts(drafts),
-        tzOffsetMinutes: parseTzOffsetMinutes(tzOffsetMinutes),
-        language: sanitizeLanguage(language),
-        hasPreview: hasPreview === true,
-        image: sanitizeImage(image),
-      });
+      const cleanImage = sanitizeImage(image);
+      if (cleanImage && !PLAN_LIMITS[currentUser.plan].receiptScan) {
+        throw new PlanLimitError("receiptScan", "Scan foto struk hanya tersedia di paket Pro.");
+      }
+
+      tz = parseTzOffsetMinutes(tzOffsetMinutes);
+      const reply = await AssistantService.chat(
+        currentUser.idUser,
+        {
+          history: cleanHistory,
+          drafts: sanitizeDrafts(drafts),
+          tzOffsetMinutes: tz,
+          language: sanitizeLanguage(language),
+          hasPreview: hasPreview === true,
+          image: cleanImage,
+        },
+        async () => {
+          consumed = await UserService.consumeAiMessage(currentUser, tz);
+        }
+      );
 
       return responseHandler(res, { message: "Berhasil memproses pesan", data: reply });
     } catch (error: any) {
+      if (error instanceof PlanLimitError) return planLimitResponse(res, error);
+      // A failed model call doesn't use up the user's quota.
+      if (consumed) await UserService.refundAiMessage(currentUser.idUser, tz).catch(() => {});
       if (error instanceof LlmError) {
         console.error("[assistant] LLM error:", error.message);
         const { status, message } = llmErrorResponse(error);

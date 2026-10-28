@@ -2,6 +2,7 @@ import { Response } from "express";
 import { AuthRequest } from "../middlewares/auth.middleware";
 import { UserService } from "../services/user.service";
 import { responseHandler } from "../utils/responseHandler";
+import { parseTzOffsetMinutes } from "../utils/timezone";
 
 export const UserController = {
   async me(req: AuthRequest, res: Response) {
@@ -9,6 +10,49 @@ export const UserController = {
       message: "Berhasil mengambil data user",
       data: req.currentUser,
     });
+  },
+
+  async plan(req: AuthRequest, res: Response) {
+    try {
+      const info = await UserService.getPlanInfo(
+        req.currentUser!.idUser,
+        parseTzOffsetMinutes(req.query.tzOffsetMinutes)
+      );
+      return responseHandler(res, { message: "Berhasil mengambil paket user", data: info });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal mengambil paket user",
+        isSuccess: false,
+        status: 500,
+        error,
+      });
+    }
+  },
+
+  async setPlan(req: AuthRequest, res: Response) {
+    try {
+      const { plan } = req.body ?? {};
+      if (plan !== "free" && plan !== "pro") {
+        return responseHandler(res, {
+          message: "plan harus \"free\" atau \"pro\"",
+          isSuccess: false,
+          status: 400,
+        });
+      }
+
+      const user = await UserService.setPlan(req.params.idUser, plan);
+      return responseHandler(res, {
+        message: plan === "pro" ? "User berhasil dijadikan Pro" : "User berhasil dijadikan Free",
+        data: user,
+      });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal mengubah paket user",
+        isSuccess: false,
+        status: 400,
+        error,
+      });
+    }
   },
 
   async getListUser(req: AuthRequest, res: Response) {

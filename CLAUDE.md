@@ -31,12 +31,22 @@ Every response goes through `src/utils/responseHandler.ts`, producing `{ message
 ### Auth / user-approval flow
 
 - `UserModel` (`src/models/user.model.ts`): `nameUser`, `username` (the login identifier — there is no `email` field), `password` (bcrypt), `role: "admin" | "user"`, `status: "pending" | "active"`, `tokenValidAfter: Date | null`.
-- **Register** (`POST /auth/register`): the very first user ever created auto-becomes an **active admin** (bootstrap, so there's always someone who can approve everyone else). Every user after that starts `pending`.
-- **Login** (`POST /auth/login`) succeeds even for a `pending` user and returns a token — login itself doesn't gate on approval status.
-- **`requireActiveUser`** (`src/middlewares/auth.middleware.ts`) is what actually blocks a pending user, on every other protected route, with `403 "Menunggu validasi"`. It re-fetches the user from the DB on *every* request rather than trusting the JWT payload, so an admin's `accept-user` call takes effect immediately — no need for the user to log in again for a new token.
+- **Register** (`POST /auth/register`): the very first user ever created auto-becomes the **admin**. Every account is `active` (and `plan: "free"`) from registration — admin approval is no longer required.
+- **Login** (`POST /auth/login`) activates an account still marked `pending` from the old approval flow.
+- **`requireActiveUser`** (`src/middlewares/auth.middleware.ts`) re-fetches the user from the DB on *every* request rather than trusting the JWT payload (so a plan change or logout takes effect immediately) and builds `req.currentUser` via `toSafeUser()` (`src/utils/plan.ts`), which carries the **effective** plan. A leftover `pending` user is activated here too instead of being blocked.
 - **Logout** (`POST /auth/logout`, `requireAuth` only — no active-status gate, since even a pending user should be able to invalidate their own token) stamps `tokenValidAfter = now()` on the user. `requireActiveUser` then rejects any token whose `iat` predates that stamp. This invalidates **every** token issued to that user at once (no per-session/per-device tracking) — the known tradeoff of doing this without a session store. If real per-device revocation is ever needed, the standard upgrade is short-lived access tokens + a server-tracked refresh token; not worth doing preemptively.
-- Admin-only routes (`GET /user/get-list-user`, `POST /user/accept-user`) use `requireAdmin`, which checks the freshly-loaded user's role (via `requireActiveUser`), not the JWT's.
+- Admin-only routes (`GET /user/get-list-user`, `PATCH /user/:idUser/plan`, and the legacy `POST /user/accept-user` kept for older clients) use `requireAdmin`, which checks the freshly-loaded user's role (via `requireActiveUser`), not the JWT's.
 - Routes: `/api/auth/{register,login,logout}`, `/api/user/{me,get-list-user,accept-user}` (`src/routes/`).
+
+### Plan (Free / Pro) and payment domain
+
+- `UserModel.plan: "free" | "pro"` (+ `proSince`, `proSource: "payment" | "admin"`). `effectivePlan()` makes admins always Pro; documents without `plan` read as Free.
+- **Limits live in one place**: `PLAN_LIMITS` in `src/utils/plan.ts` (mirrored by the frontend's `src/constants/plans.ts` — keep both in sync). Existing documents above a limit stay readable/editable; limits only block creating more.
+- **Enforcement is middleware**, not service code (`src/middlewares/plan.middleware.ts`), mounted after `requireActiveUser`: `requirePlanQuota("wallets"|"categories"|"budgets"|"schedules"|"instruments")` on each create route (counts the user's documents), `requireProSubCategories` on subcategory create, `requireProMonthlyTrend` on `/reports/monthly-trend`, and `limitReportRange` on the other report endpoints (Free `dateFrom` may not be before the 1st of last month, client local calendar).
+- Every limit answers **403 with `data.code = "PLAN_LIMIT"`** (+ `feature`, `limit`) via `planLimitResponse()` — the frontend opens its Upgrade dialog on that code.
+- **Catat Cepat quota**: `AssistantService.chat` takes a `beforeLlm` callback; the controller passes `UserService.consumeAiMessage`, which atomically increments `aiUsageCount` for `aiUsageMonth` ("YYYY-MM", client local) and throws `PlanLimitError` when the month's quota is used. Replies answered without the LLM (confirm/cancel) don't count, and a failed LLM call is refunded. Admins aren't metered. Receipt photos (`image`) are Pro-only.
+- `GET /user/me/plan` → `{ plan, proSince, limits, usage, proLifetimePrice }`.
+- **Payments — Midtrans Snap, one-time "Pro Lifetime"** (`src/services/payment.service.ts`, `PaymentOrderModel`): `POST /payments/pro/checkout` creates an order + Snap token (an unpaid order < 23 h old is reused) and returns the client key so the frontend needs no Midtrans env; `POST /payments/midtrans/notify` (no auth — the SHA512 `signature_key` is the check, then the status is re-read from Midtrans) and `GET /payments/orders/:orderId` (the frontend polls this after Snap closes; it also pulls the status from Midtrans, so local dev works without a reachable webhook) both go through the idempotent `applyStatus()`, where only the first transition to `paid` upgrades the user. Env: `MIDTRANS_SERVER_KEY`, `MIDTRANS_CLIENT_KEY`, `MIDTRANS_IS_PRODUCTION` (default sandbox), optional `PRO_LIFETIME_PRICE`.
 
 ### Wallet domain
 

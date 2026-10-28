@@ -1,5 +1,7 @@
 export type UserRole = "admin" | "user";
 export type UserStatus = "pending" | "active";
+export type UserPlan = "free" | "pro";
+export type ProSource = "payment" | "admin";
 
 export interface IUser {
   nameUser: string;
@@ -10,6 +12,11 @@ export interface IUser {
   // Tokens issued before this timestamp are rejected — set on logout so a
   // JWT can be invalidated server-side despite being otherwise stateless.
   tokenValidAfter: Date | null;
+  plan: UserPlan;
+  proSince: Date | null;
+  proSource: ProSource | null;
+  aiUsageMonth: string | null;
+  aiUsageCount: number;
   // Populated by Mongoose's `timestamps: true` on the schema, not declared
   // there — added here just so callers can read it without an `any` cast.
   createdAt?: Date;
@@ -33,6 +40,9 @@ export interface ISafeUser {
   role: UserRole;
   status: UserStatus;
   createdAt: Date;
+  // Effective plan — admins are always "pro" (see utils/plan.ts).
+  plan: UserPlan;
+  proSince: Date | null;
   // Shared demo account (see utils/demo.ts): blocked from destructive actions.
   isDemo: boolean;
 }
