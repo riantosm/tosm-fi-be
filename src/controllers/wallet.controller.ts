@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { AuthRequest } from "../middlewares/auth.middleware";
 import { WalletService } from "../services/wallet.service";
+import { sanitizeUploadImage } from "../utils/cloudinary";
 import { responseHandler } from "../utils/responseHandler";
 
 export const WalletController = {
@@ -144,6 +145,59 @@ export const WalletController = {
     } catch (error: any) {
       return responseHandler(res, {
         message: error.message || "Gagal menyimpan urutan wallet",
+        isSuccess: false,
+        status: 400,
+        error,
+      });
+    }
+  },
+
+  async setLogo(req: AuthRequest, res: Response) {
+    try {
+      const image = sanitizeUploadImage(req.body.image);
+
+      if (!image) {
+        return responseHandler(res, {
+          message: "image wajib berupa gambar JPG/PNG/WebP (base64, maks ~1,5 MB)",
+          isSuccess: false,
+          status: 400,
+        });
+      }
+
+      const wallet = await WalletService.setLogo(
+        req.currentUser!.idUser,
+        req.params.idWallet,
+        image
+      );
+
+      return responseHandler(res, {
+        message: "Logo wallet berhasil diunggah",
+        data: wallet,
+      });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal mengunggah logo wallet",
+        isSuccess: false,
+        status: 400,
+        error,
+      });
+    }
+  },
+
+  async removeLogo(req: AuthRequest, res: Response) {
+    try {
+      const wallet = await WalletService.removeLogo(
+        req.currentUser!.idUser,
+        req.params.idWallet
+      );
+
+      return responseHandler(res, {
+        message: "Logo wallet berhasil dihapus",
+        data: wallet,
+      });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal menghapus logo wallet",
         isSuccess: false,
         status: 400,
         error,

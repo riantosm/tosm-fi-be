@@ -10,6 +10,8 @@ const WalletSchema = new Schema<IWallet>(
     transactionCount: { type: Number, default: 0 },
     isPrimary: { type: Boolean, default: false },
     order: { type: Number, default: 0 },
+    logoUrl: { type: String, default: null },
+    logoPublicId: { type: String, default: null },
   },
   { timestamps: true }
 );

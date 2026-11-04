@@ -10,6 +10,8 @@ router.post("/", requireAuth, requireActiveUser, requirePlanQuota("wallets"), Wa
 // Registered before "/:idWallet" so "reorder" isn't matched as an idWallet param.
 router.patch("/reorder", requireAuth, requireActiveUser, WalletController.reorder);
 router.patch("/:idWallet/primary", requireAuth, requireActiveUser, WalletController.setPrimary);
+router.put("/:idWallet/logo", requireAuth, requireActiveUser, WalletController.setLogo);
+router.delete("/:idWallet/logo", requireAuth, requireActiveUser, WalletController.removeLogo);
 router.patch("/:idWallet", requireAuth, requireActiveUser, WalletController.update);
 router.delete("/:idWallet", requireAuth, requireActiveUser, WalletController.remove);
 
