@@ -7,6 +7,9 @@ export interface IWallet {
   isPrimary: boolean;
   // Persists manual drag-to-reorder — lower sorts first.
   order: number;
+  // Uploaded logo (Cloudinary, tosm-fi/wallet/<idWallet>). null = clients show the default wallet icon.
+  logoUrl: string | null;
+  logoPublicId: string | null;
 }
 
 export interface ICreateWalletInput {
@@ -27,4 +30,5 @@ export interface ISafeWallet {
   balance: number;
   transactionCount: number;
   isPrimary: boolean;
+  logoUrl: string | null;
 }

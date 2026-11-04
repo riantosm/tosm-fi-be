@@ -138,6 +138,7 @@ export const ReportService = {
           idWallet,
           nameWallet: wallet.nameWallet,
           color: wallet.color,
+          logoUrl: wallet.logoUrl ?? null,
           transactionCount,
           percentage: totalCount > 0 ? (transactionCount / totalCount) * 100 : 0,
         };

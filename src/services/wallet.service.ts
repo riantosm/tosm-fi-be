@@ -4,6 +4,7 @@ import {
   IUpdateWalletInput,
 } from "../interfaces/wallet.interface";
 import { WalletModel } from "../models/wallet.model";
+import { Cloudinary, IUploadImage } from "../utils/cloudinary";
 
 const toSafeWallet = (wallet: any): ISafeWallet => ({
   idWallet: wallet._id.toString(),
@@ -12,6 +13,7 @@ const toSafeWallet = (wallet: any): ISafeWallet => ({
   balance: wallet.balance,
   transactionCount: wallet.transactionCount,
   isPrimary: wallet.isPrimary,
+  logoUrl: wallet.logoUrl ?? null,
 });
 
 export const WalletService = {
@@ -50,6 +52,33 @@ export const WalletService = {
   async remove(idUser: string, idWallet: string): Promise<void> {
     const wallet = await WalletModel.findOneAndDelete({ _id: idWallet, idUser });
     if (!wallet) throw new Error("Wallet tidak ditemukan");
+    await Cloudinary.destroyQuietly([wallet.logoPublicId]);
+  },
+
+  async setLogo(idUser: string, idWallet: string, image: IUploadImage): Promise<ISafeWallet> {
+    const wallet = await WalletModel.findOne({ _id: idWallet, idUser });
+    if (!wallet) throw new Error("Wallet tidak ditemukan");
+
+    // Named after the wallet id, so a new logo overwrites the previous file.
+    const uploaded = await Cloudinary.upload("wallet", idWallet, image);
+    wallet.logoUrl = uploaded.url;
+    wallet.logoPublicId = uploaded.publicId;
+    await wallet.save();
+
+    return toSafeWallet(wallet);
+  },
+
+  async removeLogo(idUser: string, idWallet: string): Promise<ISafeWallet> {
+    const wallet = await WalletModel.findOne({ _id: idWallet, idUser });
+    if (!wallet) throw new Error("Wallet tidak ditemukan");
+
+    const publicId = wallet.logoPublicId;
+    wallet.logoUrl = null;
+    wallet.logoPublicId = null;
+    await wallet.save();
+    await Cloudinary.destroyQuietly([publicId]);
+
+    return toSafeWallet(wallet);
   },
 
   async setPrimary(idUser: string, idWallet: string): Promise<ISafeWallet[]> {
