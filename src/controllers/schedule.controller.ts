@@ -20,18 +20,7 @@ export const ScheduleController = {
 
   async create(req: AuthRequest, res: Response) {
     try {
-      const { title, notes, type, amount, idWallet, idCategory, idSubCategory, frequency, weekdays, startDate } =
-        req.body;
-
-      if (!title || !type || amount === undefined || amount === null || !idWallet || !idCategory || !frequency || !startDate) {
-        return responseHandler(res, {
-          message: "title, type, amount, idWallet, idCategory, frequency, dan startDate wajib diisi",
-          isSuccess: false,
-          status: 400,
-        });
-      }
-
-      const schedule = await ScheduleService.create(req.currentUser!.idUser, {
+      const {
         title,
         notes,
         type,
@@ -42,7 +31,35 @@ export const ScheduleController = {
         frequency,
         weekdays,
         startDate,
-      });
+        idTransaction,
+      } = req.body;
+
+      if (!title || !type || amount === undefined || amount === null || !idWallet || !idCategory || !frequency || !startDate) {
+        return responseHandler(res, {
+          message: "title, type, amount, idWallet, idCategory, frequency, dan startDate wajib diisi",
+          isSuccess: false,
+          status: 400,
+        });
+      }
+
+      // Optional: the transaction this schedule was made from becomes its
+      // first occurrence's payment (see ScheduleService.linkTransaction).
+      const schedule = await ScheduleService.create(
+        req.currentUser!.idUser,
+        {
+          title,
+          notes,
+          type,
+          amount,
+          idWallet,
+          idCategory,
+          idSubCategory,
+          frequency,
+          weekdays,
+          startDate,
+        },
+        typeof idTransaction === "string" ? idTransaction : null,
+      );
 
       return responseHandler(res, { message: "Jadwal berhasil dibuat", data: schedule, status: 201 });
     } catch (error: any) {
@@ -85,6 +102,28 @@ export const ScheduleController = {
     } catch (error: any) {
       return responseHandler(res, {
         message: error.message || "Gagal memperbarui jadwal",
+        isSuccess: false,
+        status: 400,
+        error,
+      });
+    }
+  },
+
+  async linkTransaction(req: AuthRequest, res: Response) {
+    try {
+      const { idTransaction } = req.body;
+      if (!idTransaction || typeof idTransaction !== "string") {
+        return responseHandler(res, { message: "idTransaction wajib diisi", isSuccess: false, status: 400 });
+      }
+      const occurrence = await ScheduleService.linkTransaction(
+        req.currentUser!.idUser,
+        req.params.idSchedule,
+        idTransaction,
+      );
+      return responseHandler(res, { message: "Transaksi berhasil ditautkan ke jadwal", data: occurrence });
+    } catch (error: any) {
+      return responseHandler(res, {
+        message: error.message || "Gagal menautkan transaksi ke jadwal",
         isSuccess: false,
         status: 400,
         error,

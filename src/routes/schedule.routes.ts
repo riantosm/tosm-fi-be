@@ -13,6 +13,7 @@ router.post("/occurrences/:idOccurrence/cancel", requireAuth, requireActiveUser,
 
 router.get("/", requireAuth, requireActiveUser, ScheduleController.list);
 router.post("/", requireAuth, requireActiveUser, requirePlanQuota("schedules"), ScheduleController.create);
+router.post("/:idSchedule/link-transaction", requireAuth, requireActiveUser, ScheduleController.linkTransaction);
 router.patch("/:idSchedule/pause", requireAuth, requireActiveUser, ScheduleController.setActive);
 router.patch("/:idSchedule", requireAuth, requireActiveUser, ScheduleController.update);
 router.delete("/:idSchedule", requireAuth, requireActiveUser, ScheduleController.remove);

@@ -78,6 +78,13 @@ Every response goes through `src/utils/responseHandler.ts`, producing `{ message
 - Routes: `/api/budgets/{"", ":idBudget", "reorder"}` (`src/routes/budget.routes.ts`) — `/reorder` is registered before the generic `/:idBudget` PATCH route, same static-vs-dynamic ordering gotcha as wallet/category.
 - All budget routes require `requireAuth` + `requireActiveUser` — no `requireAdmin`. Included in `AccountService.resetData`'s danger-zone wipe alongside wallet/category/transaction/instrument.
 
+### Schedule: linking the source transaction
+
+"Jadikan transaksi terjadwal" (app + web transaction form) creates a schedule from a transaction whose date becomes `startDate`. Without a link, `generateDueOccurrences` would turn that same day into a pending bill the user already paid. `linkTransactionCore` (`src/services/schedule.service.ts`) marks the **first** occurrence paid by that transaction instead: it flips an already-generated pending occurrence, or writes the paid one up front so the generator's unique `{idSchedule, dueDate}` index skips that day.
+- `POST /api/schedules` takes an optional `idTransaction` (transaction already saved, i.e. editing): schedule + paid occurrence are written in one session, or neither.
+- `POST /api/schedules/:idSchedule/link-transaction` `{ idTransaction }` (new transaction, saved after its schedule was made): retried once on a duplicate-key race with the generator.
+- Both require the first due date to equal `startDate` (weekly: its weekday picked), the transaction to belong to the user with the schedule's `type`, its `date` to fall on `startDate` give or take the widest timezone offset (±14h, since `startDate` is the client's local day stored as UTC midnight), and the transaction not to be linked to any occurrence yet. The clients check the same before sending.
+
 ### Transaction domain
 
 - `TransactionModel` (`src/models/transaction.model.ts`): `idUser` (owner), `type: "income" | "expense" | "transfer" | "correction"`, `idWallet`/`idCategory`/`idSubCategory`/`idWalletFrom`/`idWalletTo` (all nullable strings — which ones apply depends on `type`, exactly like the FE's `Transaction` type: transfer uses `idWalletFrom`/`idWalletTo` instead of `idWallet`, transfer/correction never carry a category), `title`, `notes`, `amount`, `date`. Indexed on `{ idUser, date }` (default sort/month filtering) and `{ idUser, idWallet }` / `{ idUser, idCategory }` (filter chips).
